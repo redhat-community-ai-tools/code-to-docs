@@ -34,6 +34,14 @@ inputs:
     description: 'Optional: relative path to docs subfolder within the same repository (e.g., "docs", "content/docs")'
     required: false
     default: ''
+  docs-base-branch:
+    description: 'Base branch for docs repository PRs (e.g., "main" or "master")'
+    required: false
+    default: 'main'
+  comment-body:
+    description: 'The comment body text (used to detect [review-docs] or [update-docs] commands)'
+    required: false
+    default: ''
 
 outputs:
   status:
@@ -55,3 +63,5 @@ runs:
     PR_NUMBER: ${{ inputs.pr-number }}
     PR_BASE: ${{ inputs.pr-base }}
     PR_HEAD_SHA: ${{ inputs.pr-head-sha }}
+    DOCS_BASE_BRANCH: ${{ inputs.docs-base-branch }}
+    COMMENT_BODY: ${{ inputs.comment-body }}

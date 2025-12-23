@@ -31,6 +31,10 @@ if [ -n "$DOCS_SUBFOLDER" ]; then
   export DOCS_SUBFOLDER="$DOCS_SUBFOLDER"
 fi
 
+if [ -n "$COMMENT_BODY" ]; then
+  export COMMENT_BODY="$COMMENT_BODY"
+fi
+
 # Validate required inputs
 if [ -z "$GEMINI_API_KEY" ]; then
   echo "❌ Error: gemini-api-key input is required"

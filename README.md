@@ -1,16 +1,31 @@
-# Upstream Documentation Enhancer - GitHub Action
+# Code-to-Docs - AI Documentation Assistant
 
 [![GitHub Action](https://img.shields.io/badge/GitHub-Action-blue.svg)](https://github.com/marketplace/actions/upstream-docs-enhancer)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A GitHub Action that uses AI to automatically analyze code changes and update documentation using Gemini AI. Perfect for keeping documentation in sync with code changes across repositories.
+AI-powered GitHub Action that automatically analyzes code changes and updates documentation using Gemini AI.
 
-## 🚀 Quick Start
+## Usage
 
-Add this workflow file to your repository at `.github/workflows/docs-enhancer.yml`:
+Comment on any Pull Request:
+- **`[review-docs]`** - Posts a comment with a summary of which doc files need updates (no full content, no PR created)
+- **`[update-docs]`** - Posts a comment with the full proposed changes AND creates a PR in docs repo
+
+## How It Works
+
+1. **Triggered by PR Comments** - When someone comments `[review-docs]` or `[update-docs]` on a Pull Request
+2. **Analyzes Code Changes** - Examines git diffs from your PRs using AI
+3. **Smart File Selection** - Identifies relevant documentation files automatically
+4. **Content Generation** - Generates updated documentation content in proper AsciiDoc/Markdown format
+
+## Setup
+
+### 1. Add Workflow
+
+Create `.github/workflows/docs-assistant.yml`:
 
 ```yaml
-name: Auto-Update Documentation
+name: Documentation Assistant
 
 on:
   issue_comment:
@@ -18,15 +33,16 @@ on:
 
 permissions:
   contents: read
-  issues: read
-  pull-requests: read
+  issues: write
+  pull-requests: write
 
 jobs:
-  update-docs:
+  docs-assistant:
     runs-on: ubuntu-latest
     if: |
       github.event.issue.pull_request && 
-      contains(github.event.comment.body, '[update-docs]')
+      (contains(github.event.comment.body, '[review-docs]') || 
+       contains(github.event.comment.body, '[update-docs]'))
     steps:
       - name: Get PR information
         id: pr_info
@@ -57,8 +73,8 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GH_PAT }}
           
-      - name: Update Documentation
-        uses: redhat-community-ai-tools/code-to-docs@v1  # Always uses latest v1.x.x
+      - name: Documentation Assistant
+        uses: csoceanu/code-to-docs@main
         with:
           gemini-api-key: ${{ secrets.GEMINI_API_KEY }}
           docs-repo-url: ${{ secrets.DOCS_REPO_URL }}
@@ -66,40 +82,27 @@ jobs:
           pr-number: ${{ github.event.issue.number }}
           pr-base: origin/${{ steps.pr_info.outputs.base_ref || 'main' }}
           pr-head-sha: ${{ steps.pr_info.outputs.head_ref }}
-          docs-subfolder: ${{ secrets.DOCS_SUBFOLDER }}  # Optional: for same-repo docs
+          docs-subfolder: ${{ secrets.DOCS_SUBFOLDER }}
+          comment-body: ${{ github.event.comment.body }}
+          docs-base-branch: ${{ secrets.DOCS_BASE_BRANCH || 'main' }}
 ```
 
-**Then just comment `[update-docs]` on any Pull Request to trigger automatic documentation updates!**
+### 2. Configure Secrets
 
-## 🎯 How It Works
+Add these in **Settings → Secrets → Actions**:
 
-1. **Triggered by PR Comments**: When someone comments `[update-docs]` on a Pull Request
-2. **Analyzes Code Changes**: Examines git diffs from your PRs using AI
-3. **Smart File Selection**: Identifies relevant documentation files automatically  
-4. **Content Generation**: Generates updated documentation content in proper AsciiDoc format
-5. **Automated PRs**: Creates pull requests in your documentation repository
+| Secret | Description |
+|--------|-------------|
+| `GEMINI_API_KEY` | Get from [Google AI Studio](https://aistudio.google.com/app/apikey) |
+| `DOCS_REPO_URL` | Docs repository URL (e.g., `https://github.com/org/docs`) |
+| `GH_PAT` | GitHub token with `repo` + `pull_requests:write` permissions |
+| `DOCS_SUBFOLDER` | _(Optional)_ Docs subfolder path (e.g., `docs`) |
+| `DOCS_BASE_BRANCH` | _(Optional)_ Base branch for docs PRs (default: `main`) |
 
-## ⚙️ Setup (5 Minutes)
+## Features
 
-### Step 1: Create Workflow File
-
-Save the workflow above as `.github/workflows/docs-enhancer.yml` in your code repository.
-
-### Step 2: Add GitHub Secrets
-
-Go to your repository Settings → Secrets and variables → Actions:
-
-| Secret Name | Description | Example |
-|-------------|-------------|---------|
-| `GEMINI_API_KEY` | Your Gemini API key from [Google AI Studio](https://aistudio.google.com/app/apikey) | `****` |
-| `DOCS_REPO_URL` | URL of your documentation repository | `https://github.com/org/docs` |
-| `GH_PAT` | GitHub Personal Access Token with `repo` + `pull_requests:write` permissions | `****` |
-| `DOCS_SUBFOLDER` | _(Optional)_ Relative path to docs subfolder in same repo | `docs` or `content/docs` |
-
-### Step 3: That's It!
-
-Comment `[update-docs]` on any PR to automatically update documentation.
-
----
-
-**Ready to automate your documentation?** Just add the workflow file, set up secrets, and comment `[update-docs]` on PRs! 🚀
+- 🤖 **AI-Powered Analysis** - Uses Gemini to identify relevant docs
+- 📝 **Smart Suggestions** - Only updates what's necessary
+- 🔍 **Review Mode** - See changes before applying
+- ⚡ **Auto-Update Mode** - Create PRs automatically
+- 📚 **Format Support** - AsciiDoc and Markdown

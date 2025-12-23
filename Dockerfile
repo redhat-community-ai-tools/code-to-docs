@@ -16,8 +16,9 @@ RUN pip install --no-cache-dir -U google-genai
 # Set up working directory
 WORKDIR /app
 
-# Copy the original script
+# Copy the scripts
 COPY scripts/suggest_docs.py /app/suggest_docs.py
+COPY scripts/security_utils.py /app/security_utils.py
 
 # Copy entrypoint script
 COPY entrypoint.sh /entrypoint.sh
