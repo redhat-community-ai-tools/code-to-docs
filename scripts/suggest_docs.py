@@ -20,6 +20,39 @@ client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 DOCS_REPO_URL = os.environ["DOCS_REPO_URL"]
 BRANCH_NAME = "doc-update-from-pr"
 
+
+def get_docs_file_url(file_path, commit_info=None):
+    """
+    Construct a GitHub URL to view a documentation file.
+    
+    Args:
+        file_path: Path to the doc file (relative to docs root)
+        commit_info: Optional commit info dict with 'repo_url'
+    
+    Returns:
+        GitHub URL to the file, or None if URL cannot be constructed
+    """
+    docs_subfolder = os.environ.get("DOCS_SUBFOLDER")
+    base_branch = os.environ.get("DOCS_BASE_BRANCH", "main")
+    
+    if docs_subfolder and commit_info and 'repo_url' in commit_info:
+        # Same repo scenario: use source repo URL + subfolder
+        repo_url = commit_info['repo_url']
+        # Construct full path including docs subfolder
+        full_path = f"{docs_subfolder}/{file_path}" if not file_path.startswith(docs_subfolder) else file_path
+        return f"{repo_url}/blob/{base_branch}/{full_path}"
+    elif DOCS_REPO_URL:
+        # Separate repo scenario: use docs repo URL
+        # Convert SSH URL to HTTPS if needed
+        repo_url = DOCS_REPO_URL
+        if repo_url.startswith("git@github.com:"):
+            repo_url = repo_url.replace("git@github.com:", "https://github.com/").replace(".git", "")
+        elif repo_url.endswith(".git"):
+            repo_url = repo_url.replace(".git", "")
+        return f"{repo_url}/blob/{base_branch}/{file_path}"
+    
+    return None
+
 def get_diff():
     """
     Get the full diff for the entire PR, not just the latest commit
@@ -566,7 +599,7 @@ Do NOT use line breaks - write as a single paragraph.
         print(f"Warning: Could not generate summary for {file_path}: {sanitize_output(str(e))}")
         return ""
 
-def generate_summary_explanation(files_with_content):
+def generate_summary_explanation(files_with_content, commit_info=None):
     """Generate a plain-English summary of what documentation changes are proposed"""
     if not files_with_content:
         return "", []
@@ -584,7 +617,13 @@ def generate_summary_explanation(files_with_content):
         
         # Skip files where AI returned SKIP (no changes needed)
         if summary and summary.strip().upper() != "SKIP":
-            summaries.append(f"- **{file_path}**: {summary}")
+            # Create clickable link if possible
+            file_url = get_docs_file_url(file_path, commit_info)
+            if file_url:
+                file_display = f"[{file_path}]({file_url})"
+            else:
+                file_display = f"**{file_path}**"
+            summaries.append(f"- {file_display}: {summary}")
             filtered_files.append(item)
         elif summary.strip().upper() == "SKIP":
             print(f"Filtering out {file_path}: no changes needed")
@@ -622,7 +661,7 @@ def post_review_comment(files_with_content, pr_number, commit_info=None, include
     else:
         # Generate plain-English summary and filter out files with no real changes
         print("Generating summary explanation...")
-        summary, filtered_files = generate_summary_explanation(files_with_content)
+        summary, filtered_files = generate_summary_explanation(files_with_content, commit_info)
         
         # Use filtered files (excludes files where AI said "no changes")
         if not filtered_files:
@@ -646,7 +685,12 @@ def post_review_comment(files_with_content, pr_number, commit_info=None, include
                 for item in filtered_files:
                     file_path = item[0]
                     new_content = item[2] if len(item) > 2 else item[1]
-                    comment_parts.append(f"#### 📄 `{file_path}`")
+                    # Create clickable link if possible
+                    file_url = get_docs_file_url(file_path, commit_info)
+                    if file_url:
+                        comment_parts.append(f"#### 📄 [{file_path}]({file_url})")
+                    else:
+                        comment_parts.append(f"#### 📄 `{file_path}`")
                     comment_parts.append("")
                     comment_parts.append("<details>")
                     comment_parts.append(f"<summary><b>View full updated content</b></summary>")
