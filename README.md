@@ -74,7 +74,7 @@ jobs:
           token: ${{ secrets.GH_PAT }}
           
       - name: Documentation Assistant
-        uses: csoceanu/code-to-docs@main
+        uses: redhat-community-ai-tools/code-to-docs@main
         with:
           gemini-api-key: ${{ secrets.GEMINI_API_KEY }}
           docs-repo-url: ${{ secrets.DOCS_REPO_URL }}
@@ -105,4 +105,4 @@ Add these in **Settings → Secrets → Actions**:
 - 📝 **Smart Suggestions** - Only updates what's necessary
 - 🔍 **Review Mode** - See changes before applying
 - ⚡ **Auto-Update Mode** - Create PRs automatically
-- 📚 **Format Support** - AsciiDoc and Markdown
+- 📚 **Format Support** - AsciiDoc, Markdown, and reStructuredText (.rst)
