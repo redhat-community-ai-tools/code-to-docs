@@ -284,15 +284,11 @@ Provide a detailed summary that would help an AI system understand when this fil
                 print(f"Empty response for {file_path} (attempt {attempt + 1}), retrying...")
                 
         except Exception as e:
-            error_str = str(e)
-            if any(x in error_str for x in ['503', '429', 'overload', 'UNAVAILABLE']):
-                wait_time = (attempt + 1) * 3
-                print(f"API overloaded for {file_path} (attempt {attempt + 1}), waiting {wait_time}s...")
-                import time
-                time.sleep(wait_time)
-            else:
-                print(f"Error summarizing {file_path}: {sanitize_output(error_str)}")
-                raise
+            error_str = sanitize_output(str(e))
+            wait_time = (attempt + 1) * 3
+            print(f"Error for {file_path} (attempt {attempt + 1}/{max_retries}): {error_str}, waiting {wait_time}s...")
+            import time
+            time.sleep(wait_time)
     
     raise Exception(f"Failed to summarize {file_path} after {max_retries} attempts")
 

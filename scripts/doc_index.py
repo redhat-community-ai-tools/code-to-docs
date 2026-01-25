@@ -293,17 +293,14 @@ Be thorough - this index will be used to automatically match code changes to doc
 
 
 def build_index_for_folder_with_retry(folder, client=None, max_retries=3):
-    """Build index with retry logic for rate limiting"""
+    """Build index with retry logic for transient errors"""
     for attempt in range(max_retries):
         try:
             return build_index_for_folder(folder, client)
         except Exception as e:
-            if "ResourceExhausted" in str(e) or "429" in str(e):
-                wait_time = 2 ** attempt
-                print(f"Rate limited on {folder}, waiting {wait_time}s...")
-                time.sleep(wait_time)
-            else:
-                raise
+            wait_time = (attempt + 1) * 3
+            print(f"Error building index for {folder} (attempt {attempt + 1}/{max_retries}): {sanitize_output(str(e))}, waiting {wait_time}s...")
+            time.sleep(wait_time)
     return None
 
 
@@ -662,23 +659,24 @@ DOCUMENTATION AREAS TO EVALUATE (batch {batch_num}/{total_batches}):
 {batch_indexes}
 
 TASK:
-From the areas listed above, identify ONLY folders whose documentation would become INCORRECT or MISLEADING without an update.
+From the areas listed above, identify ONLY folders whose documentation would become FACTUALLY INCORRECT without an update.
 
-CRITICAL: Returning [] (empty list) is likely the correct response for most batches.
-We strongly prefer an empty list over including folders that might not be relevant.
+START WITH THE ASSUMPTION: No documentation needs updating. This is true for most code changes.
+Your job is to find EXCEPTIONS to this rule - cases where docs would become WRONG.
 
-HOW TO EVALUATE:
-1. Read the ENTIRE index for each folder (overview, summaries, all sections)
-2. Ask: Would this documentation be FACTUALLY WRONG after this code change?
-3. If the documentation would still be accurate → do NOT select it
+BEFORE selecting ANY folder, you MUST be able to answer YES to ALL of these:
+1. Based on the index, does this folder document behavior that this code change DIRECTLY modifies?
+2. Would the documented instructions/information become WRONG after this change?
+3. Can I identify from the index summary WHAT SPECIFICALLY would become incorrect?
 
-SELECT A FOLDER ONLY IF YOU ARE 100% CERTAIN that ALL of these are true:
-- The code change affects behavior or information that is documented in this folder
-- The existing documentation describes something that will now be DIFFERENT
-- Readers would be MISLED if they follow the current documentation
+If you cannot answer YES to all three → return []
 
-DO NOT select folders just because they are "related to" or "mention" the changed component.
-If you have ANY doubt, do not include the folder.
+DO NOT SELECT folders for:
+- Code that is "related to" or "used by" the documented component
+- Changes to implementation details that don't affect documented behavior
+- Changes where the documentation is still technically accurate
+
+When in doubt, do NOT include.
 
 
 Return ONLY a JSON array of folder names from this batch.
