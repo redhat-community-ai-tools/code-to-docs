@@ -519,21 +519,73 @@ def commit_indexes_to_repo():
             check=True
         )
         
-        # Push to the current branch
-        # Get current branch name
-        branch_result = run_command_safe(
+        # Push to the base/main branch so indexes are reusable across all PRs
+        base_branch = os.environ.get("DOCS_BASE_BRANCH", "main")
+        
+        # Get current branch to restore later
+        current_branch_result = run_command_safe(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
             check=True
         )
-        current_branch = branch_result.stdout.strip()
+        current_branch = current_branch_result.stdout.strip()
         
-        print(f"Pushing indexes to branch: {current_branch}")
-        run_command_safe(
-            ["git", "push", "origin", current_branch],
-            check=True
-        )
+        # If we're not on the base branch, we need to:
+        # 1. Stash or commit current changes
+        # 2. Checkout base branch
+        # 3. Cherry-pick or apply the index commit
+        # 4. Push to base branch
+        # 5. Return to original branch
         
-        print(f"✅ Indexes committed and pushed to {current_branch}")
+        if current_branch != base_branch:
+            print(f"Switching to {base_branch} to push indexes...")
+            
+            # Get the commit hash we just created
+            commit_hash_result = run_command_safe(
+                ["git", "rev-parse", "HEAD"],
+                check=True
+            )
+            index_commit_hash = commit_hash_result.stdout.strip()
+            
+            # Checkout base branch
+            run_command_safe(["git", "fetch", "origin", base_branch], check=False)
+            run_command_safe(["git", "checkout", base_branch], check=True)
+            run_command_safe(["git", "pull", "origin", base_branch], check=False)
+            
+            # Cherry-pick the index commit
+            cherry_result = run_command_safe(
+                ["git", "cherry-pick", index_commit_hash],
+                check=False
+            )
+            
+            if cherry_result.returncode != 0:
+                # If cherry-pick fails (conflict), just add and commit the indexes directly
+                print("Cherry-pick had conflicts, committing indexes directly...")
+                run_command_safe(["git", "cherry-pick", "--abort"], check=False)
+                run_command_safe(["git", "add", index_relative_path], check=True)
+                run_command_safe(
+                    ["git", "commit", "-m", commit_msg],
+                    check=False  # May fail if no changes
+                )
+            
+            # Push to base branch
+            print(f"Pushing indexes to {base_branch}...")
+            run_command_safe(
+                ["git", "push", "origin", base_branch],
+                check=True
+            )
+            
+            # Return to original branch
+            run_command_safe(["git", "checkout", current_branch], check=True)
+            
+            print(f"✅ Indexes committed and pushed to {base_branch}")
+        else:
+            # Already on base branch, just push
+            print(f"Pushing indexes to {base_branch}...")
+            run_command_safe(
+                ["git", "push", "origin", base_branch],
+                check=True
+            )
+            print(f"✅ Indexes committed and pushed to {base_branch}")
         os.chdir(original_cwd)
         return True
         
@@ -597,14 +649,17 @@ DOCUMENTATION AREA INDEXES:
 TASK:
 Based on the code changes and the documentation indexes, identify which documentation AREAS (folders) DIRECTLY need to be checked for updates.
 
-STRICT RULES - BE CONSERVATIVE:
-1. Select ONLY areas that DIRECTLY document the specific code being changed
-2. For component-specific changes, select ONLY that component's documentation folder
-3. Do NOT select tangentially related areas - only direct matches
-4. Match based on the "Code Changes That Would Require Documentation Updates" sections in the indexes
-5. Match based on "Key Technical Concepts" that appear in the diff
-6. Select the MINIMUM number of areas necessary - prefer fewer with high relevance
-7. Do NOT include release notes or changelog folders unless explicitly adding a new user-facing feature
+STRICT RULES - BE VERY CONSERVATIVE:
+1. For each index, read ALL sections: "Overview", "Code Changes That Would Require Documentation Updates", and "Key Technical Concepts"
+2. The "Code Changes That Would Require Documentation Updates" section describes what types of changes are relevant to that folder
+3. Select a folder ONLY if the code diff is clearly related to what that folder documents
+4. Do NOT select folders that merely "use" or "depend on" the changed code
+5. Select the MINIMUM number of areas necessary - prefer fewer with high relevance
+6. When in doubt, select FEWER folders - it's better to miss a tangential doc than to process hundreds of irrelevant files
+
+DECISION CRITERIA:
+- Would a user reading this folder's docs need to know about this code change? If NO, don't select it.
+- Is the code change an internal implementation detail that doesn't affect user-facing documentation? If YES, don't select it.
 
 Return ONLY a JSON array of folder names, like: ["folder-1", "folder-2"]
 If no areas seem relevant, return: []
