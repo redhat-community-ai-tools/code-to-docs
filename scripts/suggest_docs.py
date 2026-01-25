@@ -338,73 +338,109 @@ def get_file_content_or_summaries(line_threshold=300):
     print(f"DEBUG: Returning {len(file_data)} files for processing")
     return file_data
 
-def ask_gemini_for_relevant_files(diff, file_previews):
+def _process_file_selection_batch(diff, batch, batch_num, total_batches, max_retries=3):
+    """Process a single batch of files for relevance selection."""
+    context = "\n\n".join(
+        [f"File: {fname}\nPreview:\n{preview}" for fname, preview in batch]
+    )
+
+    prompt = f"""
+    You are an ULTRA-CONSERVATIVE documentation assistant. Select ONLY files that DIRECTLY document the EXACT code being changed.
+
+    Git diff from this PR:
+    {diff}
+
+    Documentation files to evaluate:
+    {context}
+
+    STRICT SELECTION RULES:
+    1. ONLY select files that document the EXACT code, module, or component being modified in the diff
+    2. DO NOT select files just because they mention related concepts or technologies
+    3. DO NOT select overview or index files unless absolutely necessary
+    4. Select the MINIMUM number of files necessary
+    5. When in doubt, DO NOT select the file
+    6. Prefer returning NONE over selecting uncertain files
+    
+    AVOID COMMON OVER-SELECTION MISTAKES:
+    7. If a doc file mentions the same technology (e.g., a library, tool, or protocol) but for a DIFFERENT component or purpose, DO NOT select it
+    8. If a doc file is about USER-CONFIGURED items (e.g., custom configs, user containers, plugins) but the code change is about INTERNAL/SYSTEM behavior, DO NOT select it
+    9. If a doc file is for a different subsystem that happens to share dependencies with the changed code, DO NOT select it
+    10. Release notes and changelogs should ONLY be selected if explicitly requested or if the change is a breaking change
+
+    Return ONLY file paths (one per line) that DIRECTLY match the code changes.
+    If no files need updates, return "NONE".
+    """
+
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model="gemini-3-flash-preview",
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    thinking_config=types.ThinkingConfig(thinking_budget=0)
+                ),
+            )
+            
+            result_text = response.text.strip() if response.text else ""
+            if not result_text:
+                if attempt < max_retries - 1:
+                    import time
+                    time.sleep(2 * (attempt + 1))
+                    continue
+                return batch_num, []
+            
+            if result_text.upper() == "NONE":
+                print(f"Batch {batch_num}: No relevant files found")
+                return batch_num, []
+            
+            # Filter to only documentation files
+            suggested_files = [line.strip() for line in result_text.splitlines() if line.strip()]
+            filtered_files = [f for f in suggested_files if f.endswith('.adoc') or f.endswith('.md') or f.endswith('.rst')]
+            
+            if len(filtered_files) != len(suggested_files):
+                skipped = [f for f in suggested_files if not (f.endswith('.adoc') or f.endswith('.md') or f.endswith('.rst'))]
+                print(f"Batch {batch_num}: Skipping non-documentation files: {skipped}")
+            
+            print(f"Batch {batch_num}: Found {len(filtered_files)} relevant files")
+            return batch_num, filtered_files
+            
+        except Exception as e:
+            if attempt < max_retries - 1:
+                import time
+                wait_time = 3 * (attempt + 1)
+                print(f"Batch {batch_num}: Error (attempt {attempt + 1}), waiting {wait_time}s...")
+                time.sleep(wait_time)
+            else:
+                print(f"Batch {batch_num}: Failed after retries - {sanitize_output(str(e))}")
+                return batch_num, []
+    
+    return batch_num, []
+
+
+def ask_gemini_for_relevant_files(diff, file_previews, max_workers=5):
     all_relevant_files = []
     batch_size = 10
     
-    # Process files in batches of 10
+    # Create batches
+    batches = []
     for i in range(0, len(file_previews), batch_size):
         batch = file_previews[i:i + batch_size]
         batch_num = (i // batch_size) + 1
-        total_batches = (len(file_previews) + batch_size - 1) // batch_size
+        batches.append((batch, batch_num))
+    
+    total_batches = len(batches)
+    print(f"Processing {len(file_previews)} files in {total_batches} batches (parallel, {max_workers} workers)...")
+    
+    # Process batches in parallel
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_process_file_selection_batch, diff, batch, batch_num, total_batches): batch_num
+            for batch, batch_num in batches
+        }
         
-        print(f"Processing batch {batch_num}/{total_batches} ({len(batch)} files)...")
-        
-        # Create context for this batch of 10 files
-        context = "\n\n".join(
-            [f"File: {fname}\nPreview:\n{preview}" for fname, preview in batch]
-        )
-
-        prompt = f"""
-        You are an ULTRA-CONSERVATIVE documentation assistant. Select ONLY files that DIRECTLY document the EXACT code being changed.
-
-        Git diff from this PR:
-        {diff}
-
-        Documentation files to evaluate:
-        {context}
-
-        STRICT SELECTION RULES:
-        1. ONLY select files that document the EXACT code, module, or component being modified in the diff
-        2. DO NOT select files just because they mention related concepts or technologies
-        3. DO NOT select overview or index files unless absolutely necessary
-        4. Select the MINIMUM number of files necessary
-        5. When in doubt, DO NOT select the file
-        6. Prefer returning NONE over selecting uncertain files
-        
-        AVOID COMMON OVER-SELECTION MISTAKES:
-        7. If a doc file mentions the same technology (e.g., a library, tool, or protocol) but for a DIFFERENT component or purpose, DO NOT select it
-        8. If a doc file is about USER-CONFIGURED items (e.g., custom configs, user containers, plugins) but the code change is about INTERNAL/SYSTEM behavior, DO NOT select it
-        9. If a doc file is for a different subsystem that happens to share dependencies with the changed code, DO NOT select it
-        10. Release notes and changelogs should ONLY be selected if explicitly requested or if the change is a breaking change
-
-        Return ONLY file paths (one per line) that DIRECTLY match the code changes.
-        If no files need updates, return "NONE".
-        """
-
-        response = client.models.generate_content(
-            model="gemini-3-flash-preview",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(thinking_budget=0)
-            ),
-        )
-        
-        result_text = response.text.strip()
-        if result_text.upper() == "NONE":
-            print(f"Batch {batch_num}: No relevant files found")
-            continue
-        
-        # Filter out source code files - only keep documentation files (.adoc, .md, and .rst)
-        suggested_files = [line.strip() for line in result_text.splitlines() if line.strip()]
-        filtered_files = [f for f in suggested_files if f.endswith('.adoc') or f.endswith('.md') or f.endswith('.rst')]
-        
-        if len(filtered_files) != len(suggested_files):
-            skipped = [f for f in suggested_files if not (f.endswith('.adoc') or f.endswith('.md') or f.endswith('.rst'))]
-            print(f"Batch {batch_num}: Skipping non-documentation files: {skipped}")
-        
-        all_relevant_files.extend(filtered_files)
-        print(f"Batch {batch_num}: Found {len(filtered_files)} relevant files")
+        for future in as_completed(futures):
+            batch_num, files = future.result()
+            all_relevant_files.extend(files)
     
     # Deduplicate while preserving order
     seen = set()
