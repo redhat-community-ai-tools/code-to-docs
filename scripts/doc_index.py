@@ -630,7 +630,8 @@ def find_relevant_areas_from_indexes(diff, client=None):
         return None  # Signal to use full scan
     
     # Process indexes in batches to avoid huge prompts
-    BATCH_SIZE = 5
+    # Smaller batches = more focused evaluation per batch
+    BATCH_SIZE = 3
     all_folders = list(indexes.keys())
     all_relevant_areas = []
     
