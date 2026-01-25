@@ -507,17 +507,19 @@ DOCUMENTATION AREA INDEXES:
 {all_indexes}
 
 TASK:
-Based on the code changes and the documentation indexes, identify which documentation AREAS (folders) might need to be checked for updates.
+Based on the code changes and the documentation indexes, identify which documentation AREAS (folders) DIRECTLY need to be checked for updates.
 
-RULES:
-1. Select areas where the documentation describes functionality related to the code changes
-2. Match based on the "Code Changes That Would Require Documentation Updates" sections
-3. Match based on "Key Technical Concepts" that appear in the diff
-4. Be inclusive - it's better to check an area that doesn't need updates than to miss one that does
-5. If the change is very broad or touches core functionality, include more areas
+STRICT RULES - BE CONSERVATIVE:
+1. Select ONLY areas that DIRECTLY document the specific code being changed
+2. For component-specific changes, select ONLY that component's documentation folder
+3. Do NOT select tangentially related areas - only direct matches
+4. Match based on the "Code Changes That Would Require Documentation Updates" sections in the indexes
+5. Match based on "Key Technical Concepts" that appear in the diff
+6. Select the MINIMUM number of areas necessary - prefer fewer with high relevance
+7. Do NOT include release notes or changelog folders unless explicitly adding a new user-facing feature
 
-Return ONLY a JSON array of folder names, like: ["api", "config", "setup"]
-If no areas seem relevant, return: ["*"] to indicate a full scan is needed.
+Return ONLY a JSON array of folder names, like: ["folder-1", "folder-2"]
+If no areas seem relevant, return: []
 Do not include any explanation, just the JSON array.
 """
 
@@ -545,7 +547,11 @@ Do not include any explanation, just the JSON array.
             print("AI requested full scan")
             return None  # Signal to use full scan
         
-        print(f"Relevant documentation areas: {relevant_areas}")
+        if not relevant_areas:
+            print("AI found no relevant documentation areas")
+            return []  # No areas to check
+        
+        print(f"Relevant documentation areas ({len(relevant_areas)}): {relevant_areas}")
         return relevant_areas
         
     except json.JSONDecodeError as e:
