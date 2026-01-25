@@ -664,21 +664,19 @@ DOCUMENTATION AREAS TO EVALUATE (batch {batch_num}/{total_batches}):
 TASK:
 From the areas listed above, identify which ones DIRECTLY need updates based on this code change.
 
-IMPORTANT: It is BETTER to return an empty list [] than to select folders you're not confident about.
-Only select a folder if you are CERTAIN it needs to be updated based on this specific code change.
+CRITICAL: Returning [] (empty list) is the PREFERRED and EXPECTED response for most batches.
+Only select a folder if you are ABSOLUTELY CERTAIN it must be updated. When in doubt, return [].
 
-STRICT RULES:
-1. Read each index's "Code Changes That Would Require Documentation Updates" section carefully
-2. Select a folder ONLY if the code change DIRECTLY matches something in that section
-3. Do NOT select folders just because they mention related concepts
-4. Do NOT select folders that document code which USES the changed component
-5. If you're unsure about a folder's relevance, do NOT include it - return [] instead
+HOW TO EVALUATE EACH FOLDER:
+1. Read the ENTIRE index for that folder (overview, file summaries, code changes section, key concepts)
+2. Based on the full index content, determine if this documentation would need updates due to this code change
+3. Consider: Does this code change affect what users need to know from this documentation?
 
-ASK YOURSELF FOR EACH FOLDER:
-- Does this folder specifically document the exact component being changed? If NO, skip it.
-- Would users of this documentation need to change their behavior due to this code change? If NO, skip it.
-- Is this an API/interface change or just internal implementation? If internal, skip it.
-- Am I CONFIDENT this folder needs updating? If NOT CONFIDENT, skip it.
+DECISION RULE:
+- If you are CONFIDENT the folder's documentation needs updating based on the code change → include it
+- If you are NOT SURE or have ANY doubt → do NOT include it
+- We strongly prefer an empty list [] over selecting folders that might not be relevant
+
 
 Return ONLY a JSON array of folder names from this batch, like: ["folder-1", "folder-2"]
 If no areas from this batch are relevant OR if you're not confident, return: []
