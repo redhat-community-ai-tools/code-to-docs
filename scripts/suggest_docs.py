@@ -23,7 +23,8 @@ from doc_index import (
     update_indexes_if_needed,
     find_relevant_areas_from_indexes,
     get_files_in_areas,
-    load_all_indexes
+    load_all_indexes,
+    commit_indexes_to_repo
 )
 
 # === CONFIG ===
@@ -422,14 +423,22 @@ def find_relevant_files_optimized(diff):
         list: List of relevant file paths, or None to signal full scan needed
     """
     # Check if indexes exist
+    indexes_changed = False
     if not indexes_exist():
         print("No indexes found. Building indexes first...")
         build_all_indexes()
+        indexes_changed = True
     else:
         # Update indexes for any changed docs
         updated = update_indexes_if_needed()
         if updated:
             print(f"Updated indexes for: {updated}")
+            indexes_changed = True
+    
+    # Commit indexes to repo so they persist across runs
+    if indexes_changed:
+        print("Committing indexes to repository...")
+        commit_indexes_to_repo()
     
     # Stage 1: Find relevant AREAS using indexes (1 API call)
     print("Finding relevant documentation areas from indexes...")
