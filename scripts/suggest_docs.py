@@ -2,6 +2,7 @@ import os
 import subprocess
 import argparse
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from google import genai
 from google.genai import types
 
@@ -13,6 +14,16 @@ from security_utils import (
     setup_git_credentials,
     validate_docs_file_extension,
     validate_docs_subfolder
+)
+
+# Import documentation index module
+from doc_index import (
+    indexes_exist,
+    build_all_indexes,
+    update_indexes_if_needed,
+    find_relevant_areas_from_indexes,
+    get_files_in_areas,
+    load_all_indexes
 )
 
 # === CONFIG ===
@@ -392,6 +403,128 @@ def ask_gemini_for_relevant_files(diff, file_previews):
     
     print(f"Total relevant files found: {len(unique_files)}")
     return unique_files
+
+
+def find_relevant_files_optimized(diff):
+    """
+    Optimized file discovery using semantic indexes.
+    
+    This is a two-stage approach:
+    1. Use indexes to find relevant documentation AREAS (1 API call)
+    2. Load files from those areas and use AI to pick exact files (1 API call)
+    
+    Falls back to full scan if indexes don't exist or AI requests it.
+    
+    Args:
+        diff: The code diff to analyze
+    
+    Returns:
+        list: List of relevant file paths, or None to signal full scan needed
+    """
+    # Check if indexes exist
+    if not indexes_exist():
+        print("No indexes found. Building indexes first...")
+        build_all_indexes()
+    else:
+        # Update indexes for any changed docs
+        updated = update_indexes_if_needed()
+        if updated:
+            print(f"Updated indexes for: {updated}")
+    
+    # Stage 1: Find relevant AREAS using indexes (1 API call)
+    print("Finding relevant documentation areas from indexes...")
+    relevant_areas = find_relevant_areas_from_indexes(diff, client)
+    
+    if relevant_areas is None:
+        # AI requested full scan or error occurred
+        print("Falling back to full scan...")
+        return None
+    
+    if not relevant_areas:
+        print("No relevant areas found")
+        return []
+    
+    # Stage 2: Get files from relevant areas
+    candidate_files = get_files_in_areas(relevant_areas)
+    print(f"Found {len(candidate_files)} candidate files in areas: {relevant_areas}")
+    
+    if not candidate_files:
+        return []
+    
+    # Load content/summaries for candidate files only
+    file_previews = []
+    for file_path in candidate_files:
+        try:
+            content = Path(file_path).read_text(encoding='utf-8')
+            line_count = len(content.split('\n'))
+            
+            if line_count > 300:
+                # Generate summary for long files
+                summary = summarize_long_file(file_path, content)
+                file_previews.append((file_path, summary))
+            else:
+                file_previews.append((file_path, content))
+        except Exception as e:
+            print(f"Skipping {file_path}: {sanitize_output(str(e))}")
+    
+    if not file_previews:
+        return []
+    
+    # Stage 3: Use AI to pick exact files from candidates (1 API call typically)
+    # Since we have fewer files now, this is much faster
+    print(f"AI selecting exact files from {len(file_previews)} candidates...")
+    relevant_files = ask_gemini_for_relevant_files(diff, file_previews)
+    
+    return relevant_files
+
+
+def generate_updates_parallel(diff, relevant_files, max_workers=5):
+    """
+    Generate documentation updates in parallel.
+    
+    Args:
+        diff: The code diff
+        relevant_files: List of file paths to update
+        max_workers: Maximum parallel threads
+    
+    Returns:
+        list: List of (file_path, original_content, updated_content) tuples
+    """
+    results = []
+    
+    def process_file(file_path):
+        """Process a single file for updates"""
+        current = load_full_content(file_path)
+        if not current:
+            return None
+        
+        print(f"Checking if {file_path} needs an update...")
+        updated = ask_gemini_for_updated_content(diff, file_path, current)
+        
+        if updated.strip() == "NO_UPDATE_NEEDED":
+            print(f"No update needed for {file_path}")
+            return None
+        
+        return (file_path, current, updated)
+    
+    # Process files in parallel
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(process_file, file_path): file_path
+            for file_path in relevant_files
+        }
+        
+        for future in as_completed(futures):
+            file_path = futures[future]
+            try:
+                result = future.result()
+                if result:
+                    results.append(result)
+            except Exception as e:
+                print(f"❌ Error processing {file_path}: {sanitize_output(str(e))}")
+    
+    return results
+
 
 def load_full_content(file_path):
     """
@@ -857,7 +990,22 @@ def push_and_open_pr(modified_files, commit_info=None):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true", help="Simulate changes without writing files or pushing PR")
+    parser.add_argument("--use-index", action="store_true", default=True, help="Use semantic indexes for faster file discovery (default: True)")
+    parser.add_argument("--no-index", action="store_true", help="Disable index-based optimization, use full scan")
+    parser.add_argument("--build-index", action="store_true", help="Build/rebuild indexes and exit")
+    parser.add_argument("--parallel-updates", action="store_true", default=True, help="Generate updates in parallel (default: True)")
+    parser.add_argument("--max-workers", type=int, default=5, help="Max parallel workers for update generation (default: 5)")
     args = parser.parse_args()
+
+    # Handle --build-index mode
+    if args.build_index:
+        print("Building documentation indexes...")
+        if not setup_docs_environment():
+            print("Failed to set up docs environment")
+            return
+        result = build_all_indexes(force=True)
+        print(f"Index build complete: {result['status']}")
+        return
 
     # Detect which command was used: [review-docs] or [update-docs]
     comment_body = os.environ.get("COMMENT_BODY", "")
@@ -870,7 +1018,11 @@ def main():
         # Fallback to update mode if no command detected (backward compatibility)
         update_mode = True
     
+    # Determine if we should use indexes
+    use_index = args.use_index and not args.no_index
+    
     print(f"Mode: {'Review' if review_mode and not update_mode else 'Update' if update_mode and not review_mode else 'Review + Update'}")
+    print(f"Optimization: {'Index-based' if use_index else 'Full scan'}")
 
     diff = get_diff()
     if not diff:
@@ -889,16 +1041,30 @@ def main():
     if not setup_docs_environment():
         print("Failed to set up docs environment")
         return
+    
+    # === FILE DISCOVERY ===
+    if use_index:
+        # Optimized path: use semantic indexes
+        print("Using optimized index-based file discovery...")
+        relevant_files = find_relevant_files_optimized(diff)
         
-    file_previews = get_file_content_or_summaries()
-    print(f"DEBUG: Collected {len(file_previews)} file previews")
+        if relevant_files is None:
+            # Fallback to full scan was requested
+            print("Index-based discovery requested full scan, falling back...")
+            use_index = False
+    
+    if not use_index:
+        # Original path: full scan
+        file_previews = get_file_content_or_summaries()
+        print(f"DEBUG: Collected {len(file_previews)} file previews")
 
-    if not file_previews:
-        print("No documentation files found to process.")
-        return
+        if not file_previews:
+            print("No documentation files found to process.")
+            return
 
-    print("Asking Gemini for relevant files...")
-    relevant_files = ask_gemini_for_relevant_files(diff, file_previews)
+        print("Asking Gemini for relevant files...")
+        relevant_files = ask_gemini_for_relevant_files(diff, file_previews)
+    
     if not relevant_files:
         print("Gemini did not suggest any files.")
         # Still post a comment saying no updates needed
@@ -909,32 +1075,47 @@ def main():
 
     print("Files selected by Gemini:", relevant_files)
 
-    # Collect files with their updated content
+    # === GENERATE UPDATES ===
     files_with_content = []
     modified_files = []
     
-    for file_path in relevant_files:
-        current = load_full_content(file_path)
-        if not current:
-            continue
+    if args.parallel_updates and len(relevant_files) > 1:
+        # Parallel update generation
+        print(f"Generating updates in parallel (max {args.max_workers} workers)...")
+        files_with_content = generate_updates_parallel(diff, relevant_files, max_workers=args.max_workers)
+        
+        # Write files if in update mode
+        for file_path, current, updated in files_with_content:
+            if update_mode and not args.dry_run:
+                print(f"Updating {file_path}...")
+                if overwrite_file(file_path, updated):
+                    modified_files.append(file_path)
+            elif args.dry_run:
+                print(f"[Dry Run] Would update {file_path}")
+    else:
+        # Sequential update generation (original behavior)
+        for file_path in relevant_files:
+            current = load_full_content(file_path)
+            if not current:
+                continue
 
-        print(f"Checking if {file_path} needs an update...")
-        updated = ask_gemini_for_updated_content(diff, file_path, current)
+            print(f"Checking if {file_path} needs an update...")
+            updated = ask_gemini_for_updated_content(diff, file_path, current)
 
-        if updated.strip() == "NO_UPDATE_NEEDED":
-            print(f"No update needed for {file_path}")
-            continue
+            if updated.strip() == "NO_UPDATE_NEEDED":
+                print(f"No update needed for {file_path}")
+                continue
 
-        # Store both original and updated content for review comment
-        files_with_content.append((file_path, current, updated))
+            # Store both original and updated content for review comment
+            files_with_content.append((file_path, current, updated))
 
-        # Only write files if in update mode (not review-only mode)
-        if update_mode and not args.dry_run:
-            print(f"Updating {file_path}...")
-            if overwrite_file(file_path, updated):
-                modified_files.append(file_path)
-        elif args.dry_run:
-            print(f"[Dry Run] Would update {file_path}")
+            # Only write files if in update mode (not review-only mode)
+            if update_mode and not args.dry_run:
+                print(f"Updating {file_path}...")
+                if overwrite_file(file_path, updated):
+                    modified_files.append(file_path)
+            elif args.dry_run:
+                print(f"[Dry Run] Would update {file_path}")
 
     # Handle different modes
     if files_with_content:
