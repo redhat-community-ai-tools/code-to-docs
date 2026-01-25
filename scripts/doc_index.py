@@ -672,12 +672,13 @@ HOW TO EVALUATE:
 2. Ask: Would this documentation be FACTUALLY WRONG after this code change?
 3. If the documentation would still be accurate → do NOT select it
 
-THE BAR IS HIGH - Select a folder ONLY if ALL of these are true:
+SELECT A FOLDER ONLY IF YOU ARE 100% CERTAIN that ALL of these are true:
 - The code change affects behavior or information that is documented in this folder
 - The existing documentation describes something that will now be DIFFERENT
 - Readers would be MISLED if they follow the current documentation
 
 DO NOT select folders just because they are "related to" or "mention" the changed component.
+If you have ANY doubt, do not include the folder.
 
 
 Return ONLY a JSON array of folder names from this batch.
