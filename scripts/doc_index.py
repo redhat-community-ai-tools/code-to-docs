@@ -631,7 +631,7 @@ def find_relevant_areas_from_indexes(diff, client=None):
     
     # Process indexes in batches to avoid huge prompts
     # Smaller batches = more focused evaluation per batch
-    BATCH_SIZE = 3
+    BATCH_SIZE = 5
     all_folders = list(indexes.keys())
     all_relevant_areas = []
     
@@ -723,6 +723,7 @@ def _process_area_batch(client, prompt, batch_num, total_batches, batch_folders)
                 model="gemini-3-flash-preview",
                 contents=prompt,
                 config=types.GenerateContentConfig(
+                    temperature=0.1,  # More deterministic and conservative
                     thinking_config=types.ThinkingConfig(thinking_budget=0)
                 ),
             )
