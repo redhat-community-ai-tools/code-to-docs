@@ -464,21 +464,48 @@ def find_relevant_files_optimized(diff):
     if not candidate_files:
         return []
     
-    # Load content/summaries for candidate files only
+    # Load content/summaries for candidate files only (parallel for speed)
     file_previews = []
+    files_needing_summary = []
+    files_with_content = []
+    
+    # First pass: identify which files need summaries
     for file_path in candidate_files:
         try:
             content = Path(file_path).read_text(encoding='utf-8')
             line_count = len(content.split('\n'))
             
             if line_count > 300:
-                # Generate summary for long files
-                summary = summarize_long_file(file_path, content)
-                file_previews.append((file_path, summary))
+                files_needing_summary.append((file_path, content))
             else:
-                file_previews.append((file_path, content))
+                files_with_content.append((file_path, content))
         except Exception as e:
             print(f"Skipping {file_path}: {sanitize_output(str(e))}")
+    
+    # Generate summaries in parallel for long files
+    if files_needing_summary:
+        print(f"Generating summaries for {len(files_needing_summary)} long files in parallel...")
+        
+        def generate_summary_task(args):
+            file_path, content = args
+            try:
+                summary = summarize_long_file(file_path, content)
+                return (file_path, summary)
+            except Exception as e:
+                print(f"Error summarizing {file_path}: {sanitize_output(str(e))}")
+                # Fallback to truncated content
+                return (file_path, content[:5000] + "\n... [truncated]")
+        
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {executor.submit(generate_summary_task, args): args[0] 
+                      for args in files_needing_summary}
+            for future in as_completed(futures):
+                result = future.result()
+                if result:
+                    file_previews.append(result)
+    
+    # Add files that didn't need summaries
+    file_previews.extend(files_with_content)
     
     if not file_previews:
         return []
