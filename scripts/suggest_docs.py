@@ -19,6 +19,7 @@ from security_utils import (
 # Import documentation index module
 from doc_index import (
     indexes_exist,
+    fetch_indexes_from_main,
     build_all_indexes,
     update_indexes_if_needed,
     find_relevant_areas_from_indexes,
@@ -422,6 +423,9 @@ def find_relevant_files_optimized(diff):
     Returns:
         list: List of relevant file paths, or None to signal full scan needed
     """
+    # Try to fetch indexes from main branch if they don't exist locally
+    fetch_indexes_from_main()
+    
     # Check if indexes exist
     indexes_changed = False
     if not indexes_exist():

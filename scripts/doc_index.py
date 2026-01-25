@@ -658,8 +658,7 @@ STRICT RULES:
 3. Do NOT select folders just because they mention related concepts
 4. Do NOT select folders that document code which USES the changed component
 5. Select the MINIMUM number of areas necessary - prefer fewer with high relevance
-6. When in doubt, select FEWER folders
-
+6. When in doubt, select FEWER folders - it's better to miss a tangential doc than to process hundreds of irrelevant files
 ASK YOURSELF FOR EACH FOLDER:
 - Does this folder specifically document the exact component being changed? If NO, skip it.
 - Would users of this documentation need to change their behavior due to this code change? If NO, skip it.
@@ -773,6 +772,80 @@ def get_files_in_areas(areas, docs_root=None):
                 files.append(root_doc.name)
     
     return list(set(files))  # Deduplicate
+
+
+def fetch_indexes_from_main():
+    """
+    Fetch indexes from the main/base branch if they don't exist locally.
+    
+    This ensures PRs created before indexes were committed to main
+    can still benefit from cached indexes without rebuilding.
+    
+    Returns:
+        bool: True if indexes were fetched, False otherwise
+    """
+    docs_root = get_docs_root().resolve()
+    index_dir = docs_root / INDEX_DIR
+    
+    # If indexes already exist locally, no need to fetch
+    if index_dir.exists() and list(index_dir.glob("*.index.md")):
+        print("Indexes already exist locally")
+        return False
+    
+    try:
+        original_cwd = os.getcwd()
+        
+        # Determine paths
+        docs_subfolder = os.environ.get("DOCS_SUBFOLDER", "")
+        if docs_subfolder:
+            repo_root = docs_root.parent
+            os.chdir(str(repo_root))
+            index_relative_path = f"{docs_subfolder}/{INDEX_DIR}"
+        else:
+            os.chdir(str(docs_root))
+            index_relative_path = INDEX_DIR
+        
+        base_branch = os.environ.get("DOCS_BASE_BRANCH", "main")
+        
+        print(f"Checking for indexes on {base_branch} branch...")
+        
+        # Fetch the base branch
+        run_command_safe(["git", "fetch", "origin", base_branch], check=False)
+        
+        # Check if indexes exist on the base branch
+        check_result = run_command_safe(
+            ["git", "ls-tree", "-r", f"origin/{base_branch}", "--name-only"],
+            check=False
+        )
+        
+        if check_result.returncode != 0 or index_relative_path not in check_result.stdout:
+            print(f"No indexes found on {base_branch} branch")
+            os.chdir(original_cwd)
+            return False
+        
+        # Checkout just the index directory from main
+        print(f"Fetching indexes from {base_branch}...")
+        checkout_result = run_command_safe(
+            ["git", "checkout", f"origin/{base_branch}", "--", index_relative_path],
+            check=False
+        )
+        
+        if checkout_result.returncode == 0:
+            print(f"✅ Fetched indexes from {base_branch}")
+            os.chdir(original_cwd)
+            return True
+        else:
+            print(f"Could not fetch indexes from {base_branch}")
+            os.chdir(original_cwd)
+            return False
+            
+    except Exception as e:
+        print(f"Warning: Error fetching indexes from main: {sanitize_output(str(e))}")
+        try:
+            os.chdir(original_cwd)
+        except:
+            pass
+        return False
 
 
 def indexes_exist(docs_root=None):
