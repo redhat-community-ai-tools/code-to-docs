@@ -669,7 +669,7 @@ If no areas seem relevant, return: []
 Do not include any explanation, just the JSON array.
 """
 
-    max_retries = 3
+    max_retries = 5  # Increased retries for flaky API
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
@@ -680,17 +680,28 @@ Do not include any explanation, just the JSON array.
                 ),
             )
             
-            # Check for empty or malformed response
-            if not response.text or not response.text.strip():
+            # Check for empty or malformed response (safely access response.text)
+            try:
+                response_text = response.text
+            except Exception as text_err:
+                print(f"Could not get response text (attempt {attempt + 1}): {sanitize_output(str(text_err))}")
+                if attempt < max_retries - 1:
+                    time.sleep(3 * (attempt + 1))  # Linear backoff for API issues
+                    continue
+                else:
+                    print("Could not get valid response after all retries, falling back to full scan")
+                    return None
+            
+            if not response_text or not response_text.strip():
                 if attempt < max_retries - 1:
                     print(f"Empty response from AI (attempt {attempt + 1}), retrying...")
-                    time.sleep(2 ** attempt)  # Exponential backoff
+                    time.sleep(3 * (attempt + 1))  # Linear backoff
                     continue
                 else:
                     print("AI returned empty response after all retries, falling back to full scan")
                     return None
             
-            result_text = response.text.strip()
+            result_text = response_text.strip()
             
             # Clean up response - remove markdown code blocks if present
             if result_text.startswith("```"):
@@ -715,7 +726,7 @@ Do not include any explanation, just the JSON array.
         except json.JSONDecodeError as e:
             if attempt < max_retries - 1:
                 print(f"JSON parse error (attempt {attempt + 1}), retrying...")
-                time.sleep(2 ** attempt)
+                time.sleep(3 * (attempt + 1))
                 continue
             print(f"Warning: Could not parse AI response as JSON: {sanitize_output(str(e))}")
             # Don't print full response as it might contain sensitive info from the prompt
@@ -723,13 +734,18 @@ Do not include any explanation, just the JSON array.
             return None  # Fallback to full scan
         except Exception as e:
             error_str = str(e).lower()
-            if "resource" in error_str or "quota" in error_str or "rate" in error_str:
+            # Handle rate limits, quota, and API errors
+            if any(kw in error_str for kw in ["resource", "quota", "rate", "overload", "unavailable", "503", "429"]):
                 if attempt < max_retries - 1:
-                    wait_time = 2 ** (attempt + 2)  # Longer wait for rate limits
-                    print(f"Rate limit hit (attempt {attempt + 1}), waiting {wait_time}s...")
+                    wait_time = 5 * (attempt + 1)  # Longer wait for rate limits
+                    print(f"API limit/error hit (attempt {attempt + 1}), waiting {wait_time}s...")
                     time.sleep(wait_time)
                     continue
             print(f"Error finding relevant areas: {sanitize_output(str(e))}")
+            if attempt < max_retries - 1:
+                print(f"Retrying (attempt {attempt + 1})...")
+                time.sleep(3 * (attempt + 1))
+                continue
             return None  # Fallback to full scan
     
     return None  # Fallback after all retries exhausted
