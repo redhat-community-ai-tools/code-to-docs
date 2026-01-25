@@ -25,7 +25,9 @@ from doc_index import (
     find_relevant_areas_from_indexes,
     get_files_in_areas,
     load_all_indexes,
-    commit_indexes_to_repo
+    commit_indexes_to_repo,
+    get_or_generate_summary,
+    summaries_exist
 )
 
 # === CONFIG ===
@@ -549,27 +551,45 @@ def find_relevant_files_optimized(diff):
         except Exception as e:
             print(f"Skipping {file_path}: {sanitize_output(str(e))}")
     
-    # Generate summaries in parallel for long files
+    # Generate summaries in parallel for long files (with caching)
     if files_needing_summary:
-        print(f"Generating summaries for {len(files_needing_summary)} long files in parallel...")
+        # Check how many need actual generation vs cached
+        cached_count = 0
+        to_generate = []
         
-        def generate_summary_task(args):
-            file_path, content = args
-            try:
-                summary = summarize_long_file(file_path, content)
-                return (file_path, summary)
-            except Exception as e:
-                print(f"Error summarizing {file_path}: {sanitize_output(str(e))}")
-                # Fallback to truncated content
-                return (file_path, content[:5000] + "\n... [truncated]")
+        for file_path, content in files_needing_summary:
+            from doc_index import load_cached_summary
+            cached = load_cached_summary(file_path)
+            if cached:
+                file_previews.append((file_path, cached))
+                cached_count += 1
+            else:
+                to_generate.append((file_path, content))
         
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            futures = {executor.submit(generate_summary_task, args): args[0] 
-                      for args in files_needing_summary}
-            for future in as_completed(futures):
-                result = future.result()
-                if result:
-                    file_previews.append(result)
+        if cached_count > 0:
+            print(f"Using {cached_count} cached summaries")
+        
+        if to_generate:
+            print(f"Generating {len(to_generate)} new summaries in parallel...")
+            
+            def generate_summary_task(args):
+                file_path, content = args
+                try:
+                    # Generate and cache the summary
+                    summary = get_or_generate_summary(file_path, content, summarize_long_file)
+                    return (file_path, summary)
+                except Exception as e:
+                    print(f"Error summarizing {file_path}: {sanitize_output(str(e))}")
+                    # Fallback to truncated content
+                    return (file_path, content[:5000] + "\n... [truncated]")
+            
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                futures = {executor.submit(generate_summary_task, args): args[0] 
+                          for args in to_generate}
+                for future in as_completed(futures):
+                    result = future.result()
+                    if result:
+                        file_previews.append(result)
     
     # Add files that didn't need summaries
     file_previews.extend(files_with_content)

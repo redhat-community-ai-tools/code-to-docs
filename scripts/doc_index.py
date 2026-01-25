@@ -29,6 +29,8 @@ from security_utils import sanitize_output, run_command_safe
 # Index configuration
 INDEX_DIR = ".doc-index"
 MANIFEST_FILE = "manifest.json"
+SUMMARIES_DIR = "summaries"
+SUMMARIES_MANIFEST = "summaries_manifest.json"
 INDEX_VERSION = "1.0"
 MAX_WORKERS_INDEX = 5  # Parallel threads for index generation
 MAX_WORKERS_API = 10   # Parallel threads for API calls
@@ -922,6 +924,169 @@ def indexes_exist(docs_root=None):
     
     index_files = list(index_dir.glob("*.index.md"))
     return len(index_files) > 0
+
+
+# =============================================================================
+# FILE SUMMARY CACHING
+# =============================================================================
+# Caches AI-generated summaries for long documentation files to avoid
+# regenerating them on every run.
+
+
+def get_summaries_dir(docs_root=None):
+    """Get the summaries directory path."""
+    if docs_root is None:
+        docs_root = get_docs_root()
+    return Path(docs_root) / INDEX_DIR / SUMMARIES_DIR
+
+
+def load_summaries_manifest(docs_root=None):
+    """Load the summaries manifest file."""
+    if docs_root is None:
+        docs_root = get_docs_root()
+    
+    manifest_path = Path(docs_root) / INDEX_DIR / SUMMARIES_MANIFEST
+    if manifest_path.exists():
+        with open(manifest_path) as f:
+            return json.load(f)
+    return {"version": "1.0", "files": {}}
+
+
+def save_summaries_manifest(manifest, docs_root=None):
+    """Save the summaries manifest file."""
+    if docs_root is None:
+        docs_root = get_docs_root()
+    
+    index_dir = Path(docs_root) / INDEX_DIR
+    index_dir.mkdir(exist_ok=True)
+    manifest["updated"] = datetime.now().isoformat()
+    with open(index_dir / SUMMARIES_MANIFEST, 'w') as f:
+        json.dump(manifest, f, indent=2)
+
+
+def get_summary_filename(file_path):
+    """Convert a file path to a summary filename."""
+    # Replace path separators with dashes and add .summary.md extension
+    safe_name = str(file_path).replace("/", "-").replace("\\", "-")
+    return f"{safe_name}.summary.md"
+
+
+def load_cached_summary(file_path, docs_root=None):
+    """
+    Load a cached summary for a file if it exists and is still valid.
+    
+    Args:
+        file_path: Path to the original documentation file
+        docs_root: Optional docs root path
+    
+    Returns:
+        str: The cached summary, or None if not found or outdated
+    """
+    if docs_root is None:
+        docs_root = get_docs_root()
+    
+    manifest = load_summaries_manifest(docs_root)
+    file_key = str(file_path)
+    
+    # Check if we have a cached summary
+    if file_key not in manifest.get("files", {}):
+        return None
+    
+    # Check if the file has changed since the summary was generated
+    try:
+        current_hash = hash_file(Path(docs_root) / file_path)
+    except:
+        current_hash = hash_file(file_path)
+    
+    stored_hash = manifest["files"][file_key].get("hash")
+    if current_hash != stored_hash:
+        return None  # File changed, need to regenerate
+    
+    # Load the summary file
+    summary_file = get_summaries_dir(docs_root) / get_summary_filename(file_path)
+    if summary_file.exists():
+        return summary_file.read_text(encoding='utf-8')
+    
+    return None
+
+
+def save_summary(file_path, summary, docs_root=None):
+    """
+    Save a generated summary to cache.
+    
+    Args:
+        file_path: Path to the original documentation file
+        summary: The generated summary text
+        docs_root: Optional docs root path
+    """
+    if docs_root is None:
+        docs_root = get_docs_root()
+    
+    # Ensure summaries directory exists
+    summaries_dir = get_summaries_dir(docs_root)
+    summaries_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Save the summary file
+    summary_file = summaries_dir / get_summary_filename(file_path)
+    summary_file.write_text(summary, encoding='utf-8')
+    
+    # Update the manifest
+    manifest = load_summaries_manifest(docs_root)
+    
+    # Calculate file hash
+    try:
+        file_hash = hash_file(Path(docs_root) / file_path)
+    except:
+        file_hash = hash_file(file_path)
+    
+    manifest["files"][str(file_path)] = {
+        "hash": file_hash,
+        "generated": datetime.now().isoformat(),
+        "summary_file": str(summary_file.name)
+    }
+    
+    save_summaries_manifest(manifest, docs_root)
+
+
+def get_or_generate_summary(file_path, content, generate_func, docs_root=None):
+    """
+    Get a cached summary or generate a new one.
+    
+    Args:
+        file_path: Path to the documentation file
+        content: The file content (used if we need to generate)
+        generate_func: Function to call to generate summary (takes file_path, content)
+        docs_root: Optional docs root path
+    
+    Returns:
+        str: The summary (cached or newly generated)
+    """
+    # Try to load cached summary
+    cached = load_cached_summary(file_path, docs_root)
+    if cached:
+        return cached
+    
+    # Generate new summary
+    summary = generate_func(file_path, content)
+    
+    # Cache it for next time
+    if summary:
+        save_summary(file_path, summary, docs_root)
+    
+    return summary
+
+
+def summaries_exist(docs_root=None):
+    """Check if any cached summaries exist."""
+    if docs_root is None:
+        docs_root = get_docs_root()
+    
+    summaries_dir = get_summaries_dir(docs_root)
+    if not summaries_dir.exists():
+        return False
+    
+    summary_files = list(summaries_dir.glob("*.summary.md"))
+    return len(summary_files) > 0
 
 
 # CLI interface for testing
