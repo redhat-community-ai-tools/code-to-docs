@@ -613,7 +613,7 @@ def find_relevant_areas_from_indexes(diff, client=None):
     Use indexes to find which documentation AREAS are relevant to a code diff.
     
     This is the first stage of the two-stage lookup:
-    1. Find relevant areas (this function) - 1 API call
+    1. Find relevant areas (this function) - processes in batches to avoid large prompts
     2. Find exact files within those areas (separate function)
     
     Args:
@@ -632,13 +632,25 @@ def find_relevant_areas_from_indexes(diff, client=None):
         print("No indexes found, falling back to full scan")
         return None  # Signal to use full scan
     
-    # Combine all indexes for the prompt
-    all_indexes = "\n\n" + "="*50 + "\n\n".join([
-        f"## Documentation Area: {folder}\n\n{content}"
-        for folder, content in indexes.items()
-    ])
+    # Process indexes in batches to avoid huge prompts
+    BATCH_SIZE = 5
+    all_folders = list(indexes.keys())
+    all_relevant_areas = []
     
-    prompt = f"""
+    total_batches = (len(all_folders) + BATCH_SIZE - 1) // BATCH_SIZE
+    print(f"Processing {len(all_folders)} doc areas in {total_batches} batches...")
+    
+    for batch_idx in range(0, len(all_folders), BATCH_SIZE):
+        batch_folders = all_folders[batch_idx:batch_idx + BATCH_SIZE]
+        batch_num = (batch_idx // BATCH_SIZE) + 1
+        
+        # Build indexes for this batch only
+        batch_indexes = "\n\n" + "="*50 + "\n\n".join([
+            f"## Documentation Area: {folder}\n\n{indexes[folder]}"
+            for folder in batch_folders
+        ])
+        
+        prompt = f"""
 You are analyzing a code diff to determine which documentation areas might need updates.
 
 CODE DIFF:
@@ -646,11 +658,11 @@ CODE DIFF:
 {diff[:10000]}
 ```
 
-DOCUMENTATION AREA INDEXES:
-{all_indexes}
+DOCUMENTATION AREAS TO EVALUATE (batch {batch_num}/{total_batches}):
+{batch_indexes}
 
 TASK:
-Identify which documentation AREAS (folders) DIRECTLY need updates based on this code change.
+From the areas listed above, identify which ones DIRECTLY need updates based on this code change.
 
 STRICT RULES:
 1. Read each index's "Code Changes That Would Require Documentation Updates" section carefully
@@ -658,18 +670,48 @@ STRICT RULES:
 3. Do NOT select folders just because they mention related concepts
 4. Do NOT select folders that document code which USES the changed component
 5. Select the MINIMUM number of areas necessary - prefer fewer with high relevance
-6. When in doubt, select FEWER folders - it's better to miss a tangential doc than to process hundreds of irrelevant files
+6. When in doubt, select FEWER folders
+
 ASK YOURSELF FOR EACH FOLDER:
 - Does this folder specifically document the exact component being changed? If NO, skip it.
 - Would users of this documentation need to change their behavior due to this code change? If NO, skip it.
 - Is this an API/interface change or just internal implementation? If internal, likely skip it.
 
-Return ONLY a JSON array of folder names, like: ["folder-1", "folder-2"]
-If no areas seem relevant, return: []
+Return ONLY a JSON array of folder names from this batch, like: ["folder-1", "folder-2"]
+If no areas from this batch are relevant, return: []
 Do not include any explanation, just the JSON array.
 """
+        
+        batch_relevant = _process_area_batch(client, prompt, batch_num, total_batches, batch_folders)
+        if batch_relevant:
+            all_relevant_areas.extend(batch_relevant)
+    
+    # Deduplicate
+    all_relevant_areas = list(dict.fromkeys(all_relevant_areas))
+    
+    if not all_relevant_areas:
+        print("AI found no relevant documentation areas in any batch")
+        return []
+    
+    print(f"Total relevant documentation areas ({len(all_relevant_areas)}): {all_relevant_areas}")
+    return all_relevant_areas
 
-    max_retries = 5  # Increased retries for flaky API
+
+def _process_area_batch(client, prompt, batch_num, total_batches, batch_folders):
+    """
+    Process a single batch of indexes to find relevant areas.
+    
+    Args:
+        client: Gemini client
+        prompt: The prompt for this batch
+        batch_num: Current batch number
+        total_batches: Total number of batches
+        batch_folders: Folders in this batch
+    
+    Returns:
+        list: Relevant folder names from this batch
+    """
+    max_retries = 3
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
@@ -684,22 +726,22 @@ Do not include any explanation, just the JSON array.
             try:
                 response_text = response.text
             except Exception as text_err:
-                print(f"Could not get response text (attempt {attempt + 1}): {sanitize_output(str(text_err))}")
+                print(f"Batch {batch_num}/{total_batches}: Could not get response text (attempt {attempt + 1})")
                 if attempt < max_retries - 1:
-                    time.sleep(3 * (attempt + 1))  # Linear backoff for API issues
+                    time.sleep(2 * (attempt + 1))
                     continue
                 else:
-                    print("Could not get valid response after all retries, falling back to full scan")
-                    return None
+                    print(f"Batch {batch_num}/{total_batches}: Failed after retries, skipping batch")
+                    return []
             
             if not response_text or not response_text.strip():
                 if attempt < max_retries - 1:
-                    print(f"Empty response from AI (attempt {attempt + 1}), retrying...")
-                    time.sleep(3 * (attempt + 1))  # Linear backoff
+                    print(f"Batch {batch_num}/{total_batches}: Empty response (attempt {attempt + 1}), retrying...")
+                    time.sleep(2 * (attempt + 1))
                     continue
                 else:
-                    print("AI returned empty response after all retries, falling back to full scan")
-                    return None
+                    print(f"Batch {batch_num}/{total_batches}: Empty response after retries, skipping batch")
+                    return []
             
             result_text = response_text.strip()
             
@@ -712,43 +754,34 @@ Do not include any explanation, just the JSON array.
             
             relevant_areas = json.loads(result_text)
             
-            if "*" in relevant_areas:
-                print("AI requested full scan")
-                return None  # Signal to use full scan
+            # Filter to only include folders from this batch
+            relevant_areas = [f for f in relevant_areas if f in batch_folders]
             
-            if not relevant_areas:
-                print("AI found no relevant documentation areas")
-                return []  # No areas to check
+            if relevant_areas:
+                print(f"Batch {batch_num}/{total_batches}: Found relevant areas: {relevant_areas}")
+            else:
+                print(f"Batch {batch_num}/{total_batches}: No relevant areas")
             
-            print(f"Relevant documentation areas ({len(relevant_areas)}): {relevant_areas}")
             return relevant_areas
             
-        except json.JSONDecodeError as e:
+        except json.JSONDecodeError:
             if attempt < max_retries - 1:
-                print(f"JSON parse error (attempt {attempt + 1}), retrying...")
-                time.sleep(3 * (attempt + 1))
+                print(f"Batch {batch_num}/{total_batches}: JSON parse error (attempt {attempt + 1}), retrying...")
+                time.sleep(2 * (attempt + 1))
                 continue
-            print(f"Warning: Could not parse AI response as JSON: {sanitize_output(str(e))}")
-            # Don't print full response as it might contain sensitive info from the prompt
-            print("Response format was invalid, falling back to full scan")
-            return None  # Fallback to full scan
+            print(f"Batch {batch_num}/{total_batches}: JSON parse failed, skipping batch")
+            return []
         except Exception as e:
-            error_str = str(e).lower()
-            # Handle rate limits, quota, and API errors
-            if any(kw in error_str for kw in ["resource", "quota", "rate", "overload", "unavailable", "503", "429"]):
-                if attempt < max_retries - 1:
-                    wait_time = 5 * (attempt + 1)  # Longer wait for rate limits
-                    print(f"API limit/error hit (attempt {attempt + 1}), waiting {wait_time}s...")
-                    time.sleep(wait_time)
-                    continue
-            print(f"Error finding relevant areas: {sanitize_output(str(e))}")
+            # Retry on any exception
             if attempt < max_retries - 1:
-                print(f"Retrying (attempt {attempt + 1})...")
-                time.sleep(3 * (attempt + 1))
+                wait_time = 3 * (attempt + 1)
+                print(f"Batch {batch_num}/{total_batches}: Error (attempt {attempt + 1}), waiting {wait_time}s...")
+                time.sleep(wait_time)
                 continue
-            return None  # Fallback to full scan
+            print(f"Batch {batch_num}/{total_batches}: Failed after retries - {sanitize_output(str(e))}")
+            return []
     
-    return None  # Fallback after all retries exhausted
+    return []
 
 
 def get_files_in_areas(areas, docs_root=None):
