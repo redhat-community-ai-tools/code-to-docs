@@ -523,45 +523,70 @@ If no areas seem relevant, return: []
 Do not include any explanation, just the JSON array.
 """
 
-    try:
-        response = client.models.generate_content(
-            model="gemini-3-flash-preview",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(thinking_budget=0)
-            ),
-        )
-        
-        result_text = response.text.strip()
-        
-        # Clean up response - remove markdown code blocks if present
-        if result_text.startswith("```"):
-            result_text = result_text.split("\n", 1)[1]
-        if result_text.endswith("```"):
-            result_text = result_text.rsplit("\n", 1)[0]
-        result_text = result_text.strip()
-        
-        relevant_areas = json.loads(result_text)
-        
-        if "*" in relevant_areas:
-            print("AI requested full scan")
-            return None  # Signal to use full scan
-        
-        if not relevant_areas:
-            print("AI found no relevant documentation areas")
-            return []  # No areas to check
-        
-        print(f"Relevant documentation areas ({len(relevant_areas)}): {relevant_areas}")
-        return relevant_areas
-        
-    except json.JSONDecodeError as e:
-        print(f"Warning: Could not parse AI response as JSON: {sanitize_output(str(e))}")
-        # Don't print full response as it might contain sensitive info from the prompt
-        print("Response format was invalid, falling back to full scan")
-        return None  # Fallback to full scan
-    except Exception as e:
-        print(f"Error finding relevant areas: {sanitize_output(str(e))}")
-        return None  # Fallback to full scan
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model="gemini-3-flash-preview",
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    thinking_config=types.ThinkingConfig(thinking_budget=0)
+                ),
+            )
+            
+            # Check for empty or malformed response
+            if not response.text or not response.text.strip():
+                if attempt < max_retries - 1:
+                    print(f"Empty response from AI (attempt {attempt + 1}), retrying...")
+                    time.sleep(2 ** attempt)  # Exponential backoff
+                    continue
+                else:
+                    print("AI returned empty response after all retries, falling back to full scan")
+                    return None
+            
+            result_text = response.text.strip()
+            
+            # Clean up response - remove markdown code blocks if present
+            if result_text.startswith("```"):
+                result_text = result_text.split("\n", 1)[1]
+            if result_text.endswith("```"):
+                result_text = result_text.rsplit("\n", 1)[0]
+            result_text = result_text.strip()
+            
+            relevant_areas = json.loads(result_text)
+            
+            if "*" in relevant_areas:
+                print("AI requested full scan")
+                return None  # Signal to use full scan
+            
+            if not relevant_areas:
+                print("AI found no relevant documentation areas")
+                return []  # No areas to check
+            
+            print(f"Relevant documentation areas ({len(relevant_areas)}): {relevant_areas}")
+            return relevant_areas
+            
+        except json.JSONDecodeError as e:
+            if attempt < max_retries - 1:
+                print(f"JSON parse error (attempt {attempt + 1}), retrying...")
+                time.sleep(2 ** attempt)
+                continue
+            print(f"Warning: Could not parse AI response as JSON: {sanitize_output(str(e))}")
+            # Don't print full response as it might contain sensitive info from the prompt
+            print("Response format was invalid, falling back to full scan")
+            return None  # Fallback to full scan
+        except Exception as e:
+            error_str = str(e).lower()
+            if "resource" in error_str or "quota" in error_str or "rate" in error_str:
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** (attempt + 2)  # Longer wait for rate limits
+                    print(f"Rate limit hit (attempt {attempt + 1}), waiting {wait_time}s...")
+                    time.sleep(wait_time)
+                    continue
+            print(f"Error finding relevant areas: {sanitize_output(str(e))}")
+            return None  # Fallback to full scan
+    
+    return None  # Fallback after all retries exhausted
 
 
 def get_files_in_areas(areas, docs_root=None):
