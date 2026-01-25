@@ -680,10 +680,11 @@ DO NOT SELECT folders for:
 When in doubt, do NOT include.
 
 
-Return ONLY a JSON array of folder names from this batch.
-Example: ["folder-1","folder-2"] or []
-Return [] if no documentation would become incorrect - this is the expected response for most batches.
-Do not include any explanation, just the JSON array.
+IMPORTANT: You MUST respond with a valid JSON array. No other text or explanation.
+- If folders need updates: ["folder-1","folder-2"]
+- If NO folders need updates: []
+
+You MUST output something. An empty response is not valid - output [] instead.
 """
         
         batch_relevant = _process_area_batch(client, prompt, batch_num, total_batches, batch_folders)
@@ -744,7 +745,8 @@ def _process_area_batch(client, prompt, batch_num, total_batches, batch_folders)
                     time.sleep(2 * (attempt + 1))
                     continue
                 else:
-                    print(f"Batch {batch_num}/{total_batches}: Empty response after retries, skipping batch")
+                    # Treat empty response as "no relevant folders" - this is likely the AI's intent
+                    print(f"Batch {batch_num}/{total_batches}: Empty response after retries, treating as no relevant areas")
                     return []
             
             result_text = response_text.strip()
