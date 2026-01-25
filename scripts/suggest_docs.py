@@ -301,6 +301,9 @@ def get_file_content_or_summaries(line_threshold=300):
     doc_files.extend(list(Path(".").rglob("*.md")))
     doc_files.extend(list(Path(".").rglob("*.rst")))
     
+    # Filter out internal index files (.doc-index/) - these are for internal use only
+    doc_files = [f for f in doc_files if ".doc-index" not in str(f)]
+    
     # Deduplicate file paths BEFORE processing to avoid duplicate work
     seen_paths = set()
     unique_doc_files = []
@@ -441,6 +444,20 @@ def ask_gemini_for_relevant_files(diff, file_previews, max_workers=5):
         for future in as_completed(futures):
             batch_num, files = future.result()
             all_relevant_files.extend(files)
+    
+    # Strip DOCS_SUBFOLDER prefix if AI included it (common issue)
+    docs_subfolder = os.environ.get("DOCS_SUBFOLDER", "")
+    if docs_subfolder:
+        cleaned_files = []
+        for f in all_relevant_files:
+            # Remove the subfolder prefix if present (e.g., "subfolder/file.rst" -> "file.rst")
+            if f.startswith(docs_subfolder + "/"):
+                cleaned_files.append(f[len(docs_subfolder) + 1:])
+            elif f.startswith(docs_subfolder):
+                cleaned_files.append(f[len(docs_subfolder):].lstrip("/"))
+            else:
+                cleaned_files.append(f)
+        all_relevant_files = cleaned_files
     
     # Deduplicate while preserving order
     seen = set()
