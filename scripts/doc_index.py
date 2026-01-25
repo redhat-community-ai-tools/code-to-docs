@@ -232,8 +232,8 @@ def build_index_for_folder(folder, client=None):
         try:
             content = doc.read_text(encoding='utf-8')
             # Truncate very long files to avoid token limits
-            if len(content) > 15000:
-                content = content[:15000] + "\n\n[... truncated for length ...]"
+            if len(content) > 50000:
+                content = content[:50000] + "\n\n[... truncated for length ...]"
             docs_content.append({
                 "path": str(doc),
                 "content": content
@@ -244,9 +244,9 @@ def build_index_for_folder(folder, client=None):
     if not docs_content:
         return None
     
-    # Format docs for the prompt
+    # Format docs for the prompt - use more content for better understanding
     docs_text = "\n\n---\n\n".join([
-        f"### File: {d['path']}\n\n{d['content'][:5000]}"  # First 5000 chars per file for context
+        f"### File: {d['path']}\n\n{d['content'][:20000]}"  # First 20000 chars per file for better context
         for d in docs_content
     ])
     
@@ -475,7 +475,7 @@ def commit_indexes_to_repo():
     Returns:
         bool: True if indexes were committed successfully, False otherwise
     """
-    docs_root = get_docs_root()
+    docs_root = get_docs_root().resolve()  # Resolve to absolute path
     index_path = docs_root / INDEX_DIR
     
     if not index_path.exists():
@@ -491,12 +491,15 @@ def commit_indexes_to_repo():
         docs_subfolder = os.environ.get("DOCS_SUBFOLDER", "")
         if docs_subfolder:
             # We're in the docs subfolder, go to repo root
-            os.chdir(str(docs_root.parent))
+            repo_root = docs_root.parent
+            os.chdir(str(repo_root))
             index_relative_path = f"{docs_subfolder}/{INDEX_DIR}"
+            print(f"DEBUG: Changed to repo root: {repo_root}, index path: {index_relative_path}")
         else:
             # We're at repo root or in a separate docs repo
             os.chdir(str(docs_root))
             index_relative_path = INDEX_DIR
+            print(f"DEBUG: Staying in docs root: {docs_root}, index path: {index_relative_path}")
         
         # Check if there are any changes to commit
         status_result = run_command_safe(
@@ -647,19 +650,20 @@ DOCUMENTATION AREA INDEXES:
 {all_indexes}
 
 TASK:
-Based on the code changes and the documentation indexes, identify which documentation AREAS (folders) DIRECTLY need to be checked for updates.
+Identify which documentation AREAS (folders) DIRECTLY need updates based on this code change.
 
-STRICT RULES - BE VERY CONSERVATIVE:
-1. For each index, read ALL sections: "Overview", "Code Changes That Would Require Documentation Updates", and "Key Technical Concepts"
-2. The "Code Changes That Would Require Documentation Updates" section describes what types of changes are relevant to that folder
-3. Select a folder ONLY if the code diff is clearly related to what that folder documents
-4. Do NOT select folders that merely "use" or "depend on" the changed code
+STRICT RULES:
+1. Read each index's "Code Changes That Would Require Documentation Updates" section carefully
+2. Select a folder ONLY if the code change DIRECTLY matches something in that section
+3. Do NOT select folders just because they mention related concepts
+4. Do NOT select folders that document code which USES the changed component
 5. Select the MINIMUM number of areas necessary - prefer fewer with high relevance
-6. When in doubt, select FEWER folders - it's better to miss a tangential doc than to process hundreds of irrelevant files
+6. When in doubt, select FEWER folders
 
-DECISION CRITERIA:
-- Would a user reading this folder's docs need to know about this code change? If NO, don't select it.
-- Is the code change an internal implementation detail that doesn't affect user-facing documentation? If YES, don't select it.
+ASK YOURSELF FOR EACH FOLDER:
+- Does this folder specifically document the exact component being changed? If NO, skip it.
+- Would users of this documentation need to change their behavior due to this code change? If NO, skip it.
+- Is this an API/interface change or just internal implementation? If internal, likely skip it.
 
 Return ONLY a JSON array of folder names, like: ["folder-1", "folder-2"]
 If no areas seem relevant, return: []
