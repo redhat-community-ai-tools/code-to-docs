@@ -17,10 +17,14 @@ import hashlib
 import subprocess
 import shutil
 import tempfile
+import threading
 from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
+
+# Thread lock for manifest file operations (prevents race conditions in parallel summary generation)
+_manifest_lock = threading.Lock()
 
 from google import genai
 from google.genai import types
@@ -1032,8 +1036,13 @@ def load_summaries_manifest(docs_root=None):
     
     manifest_path = Path(docs_root) / INDEX_DIR / SUMMARIES_MANIFEST
     if manifest_path.exists():
-        with open(manifest_path) as f:
-            return json.load(f)
+        try:
+            with open(manifest_path) as f:
+                return json.load(f)
+        except json.JSONDecodeError as e:
+            # Manifest is corrupted (likely from race condition), start fresh
+            print(f"Warning: Corrupted summaries manifest, starting fresh: {e}")
+            return {"version": "1.0", "files": {}}
     return {"version": "1.0", "files": {}}
 
 
@@ -1121,22 +1130,23 @@ def save_summary(file_path, summary, docs_root=None):
     summary_file = summaries_dir / get_summary_filename(file_path)
     summary_file.write_text(summary, encoding='utf-8')
     
-    # Update the manifest
-    manifest = load_summaries_manifest(docs_root)
-    
-    # Calculate file hash
-    try:
-        file_hash = hash_file(Path(docs_root) / file_path)
-    except:
-        file_hash = hash_file(file_path)
-    
-    manifest["files"][str(file_path)] = {
-        "hash": file_hash,
-        "generated": datetime.now().isoformat(),
-        "summary_file": str(summary_file.name)
-    }
-    
-    save_summaries_manifest(manifest, docs_root)
+    # Update the manifest (thread-safe to prevent race conditions in parallel generation)
+    with _manifest_lock:
+        manifest = load_summaries_manifest(docs_root)
+        
+        # Calculate file hash
+        try:
+            file_hash = hash_file(Path(docs_root) / file_path)
+        except:
+            file_hash = hash_file(file_path)
+        
+        manifest["files"][str(file_path)] = {
+            "hash": file_hash,
+            "generated": datetime.now().isoformat(),
+            "summary_file": str(summary_file.name)
+        }
+        
+        save_summaries_manifest(manifest, docs_root)
 
 
 def get_or_generate_summary(file_path, content, generate_func, docs_root=None):
