@@ -106,3 +106,13 @@ Add these in **Settings → Secrets → Actions**:
 - 🔍 **Review Mode** - See changes before applying
 - ⚡ **Auto-Update Mode** - Create PRs automatically
 - 📚 **Format Support** - AsciiDoc, Markdown, and reStructuredText (.rst)
+- 🚀 **Optimized Performance** - Semantic indexes and cached summaries reduce API calls
+
+## Performance Optimization
+
+The action uses a two-stage caching system stored in `.doc-index/`:
+
+1. **Folder Indexes** - AI-generated semantic summaries of each documentation folder, used to quickly identify relevant areas without scanning all files
+2. **File Summaries** - Cached summaries of long documentation files, reused across runs
+
+These are automatically committed to your main branch and shared across all PRs, reducing runtime from ~20 minutes to ~4 minutes on large projects.
