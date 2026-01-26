@@ -552,6 +552,7 @@ def find_relevant_files_optimized(diff):
             print(f"Skipping {file_path}: {sanitize_output(str(e))}")
     
     # Generate summaries in parallel for long files (with caching)
+    summaries_generated = False
     if files_needing_summary:
         # Check how many need actual generation vs cached
         cached_count = 0
@@ -571,6 +572,7 @@ def find_relevant_files_optimized(diff):
         
         if to_generate:
             print(f"Generating {len(to_generate)} new summaries in parallel...")
+            summaries_generated = True
             
             def generate_summary_task(args):
                 file_path, content = args
@@ -593,6 +595,11 @@ def find_relevant_files_optimized(diff):
     
     # Add files that didn't need summaries
     file_previews.extend(files_with_content)
+    
+    # Commit summaries to repo so they persist across runs
+    if summaries_generated:
+        print("Committing file summaries to repository...")
+        commit_indexes_to_repo()
     
     if not file_previews:
         return []
