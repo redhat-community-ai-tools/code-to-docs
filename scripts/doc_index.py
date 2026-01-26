@@ -605,10 +605,10 @@ def commit_indexes_to_repo():
             )
             index_commit_hash = commit_hash_result.stdout.strip()
             
-            # Checkout base branch
+            # Checkout base branch (create or reset local branch from origin)
             run_command_safe(["git", "fetch", "origin", base_branch], check=False)
-            run_command_safe(["git", "checkout", base_branch], check=True)
-            run_command_safe(["git", "pull", "origin", base_branch], check=False)
+            # Use -B to create/reset local branch from origin (handles case where local branch doesn't exist)
+            run_command_safe(["git", "checkout", "-B", base_branch, f"origin/{base_branch}"], check=True)
             
             # Cherry-pick the index commit
             cherry_result = run_command_safe(
