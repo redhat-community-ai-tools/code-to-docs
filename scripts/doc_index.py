@@ -551,9 +551,16 @@ def commit_indexes_to_repo(content_type="indexes"):
             run_command_safe(["git", "add", index_relative_path], check=True)
         else:
             # Branch is not up-to-date - be selective about what we push
-            # For folder indexes: skip (could overwrite newer indexes)
-            # For summaries: only push if doc content matches main (safe)
             print(f"⚠️  Branch is not up-to-date with {base_branch}")
+            
+            if content_type == "indexes":
+                # For folder indexes: skip entirely (could overwrite newer indexes on main)
+                print(f"   Skipping index push to avoid overwriting newer indexes on {base_branch}")
+                print(f"   Indexes will be used locally but not committed")
+                os.chdir(original_cwd)
+                return False
+            
+            # For summaries: only push if doc content matches main (safe)
             print(f"   Checking which summaries are safe to push...")
             
             safe_summaries = get_safe_summaries_to_push(base_branch)
