@@ -15,6 +15,8 @@ import os
 import json
 import hashlib
 import subprocess
+import shutil
+import tempfile
 from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -601,15 +603,15 @@ def commit_indexes_to_repo(content_type="indexes"):
         if current_branch != base_branch:
             print(f"Switching to {base_branch} to push {content_type}...")
             
-            # Get the commit hash we just created
-            commit_hash_result = run_command_safe(
-                ["git", "rev-parse", "HEAD"],
-                check=True
-            )
-            index_commit_hash = commit_hash_result.stdout.strip()
+            # Save the .doc-index directory content BEFORE switching branches
+            # (because cherry-pick often fails and stash doesn't help since we already committed)
+            temp_dir = tempfile.mkdtemp()
+            index_full_path = Path(repo_root) / index_relative_path
+            temp_index_path = Path(temp_dir) / ".doc-index-backup"
+            if index_full_path.exists():
+                shutil.copytree(index_full_path, temp_index_path)
             
-            # Stash any uncommitted changes (e.g., regenerated indexes we're not pushing)
-            # This prevents checkout from failing due to uncommitted changes
+            # Stash any uncommitted changes
             run_command_safe(["git", "stash", "--include-untracked"], check=False)
             
             # Checkout base branch (create or reset local branch from origin)
@@ -617,25 +619,21 @@ def commit_indexes_to_repo(content_type="indexes"):
             # Use -B to create/reset local branch from origin (handles case where local branch doesn't exist)
             run_command_safe(["git", "checkout", "-B", base_branch, f"origin/{base_branch}"], check=True)
             
-            # Cherry-pick the index commit
-            cherry_result = run_command_safe(
-                ["git", "cherry-pick", index_commit_hash],
-                check=False
+            # Restore our saved .doc-index directory (overwrites main's version with our updated version)
+            if temp_index_path.exists():
+                if index_full_path.exists():
+                    shutil.rmtree(index_full_path)
+                shutil.copytree(temp_index_path, index_full_path)
+            
+            # Add and commit
+            run_command_safe(["git", "add", index_relative_path], check=True)
+            run_command_safe(
+                ["git", "commit", "-m", commit_msg],
+                check=False  # May fail if no changes
             )
             
-            if cherry_result.returncode != 0:
-                # If cherry-pick fails (conflict), apply stash to get our changes on main
-                print(f"Cherry-pick had conflicts, committing {content_type} directly...")
-                run_command_safe(["git", "cherry-pick", "--abort"], check=False)
-                # Apply stash to bring our changes to main
-                run_command_safe(["git", "stash", "pop"], check=False)
-                run_command_safe(["git", "add", index_relative_path], check=True)
-                run_command_safe(
-                    ["git", "commit", "-m", commit_msg],
-                    check=False  # May fail if no changes
-                )
-                # Re-stash for later (empty stash is ok)
-                run_command_safe(["git", "stash", "--include-untracked"], check=False)
+            # Clean up temp directory
+            shutil.rmtree(temp_dir, ignore_errors=True)
             
             # Push to base branch
             print(f"Pushing {content_type} to {base_branch}...")
