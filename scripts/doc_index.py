@@ -465,20 +465,23 @@ def update_indexes_if_needed():
     return updated_folders
 
 
-def commit_indexes_to_repo():
+def commit_indexes_to_repo(content_type="indexes"):
     """
     Commit the .doc-index folder to the repository.
     
-    This persists the indexes so they don't need to be rebuilt on every run.
+    This persists the indexes/summaries so they don't need to be rebuilt on every run.
+    
+    Args:
+        content_type: What's being committed - "indexes" or "summaries" (for clearer logs)
     
     Returns:
-        bool: True if indexes were committed successfully, False otherwise
+        bool: True if content was committed successfully, False otherwise
     """
     docs_root = get_docs_root().resolve()  # Resolve to absolute path
     index_path = docs_root / INDEX_DIR
     
     if not index_path.exists():
-        print("No indexes to commit")
+        print(f"No {content_type} to commit")
         return False
     
     try:
@@ -507,7 +510,7 @@ def commit_indexes_to_repo():
         )
         
         if not status_result.stdout.strip():
-            print("No index changes to commit")
+            print(f"No {content_type} changes to commit")
             os.chdir(original_cwd)
             return False
         
@@ -596,7 +599,7 @@ def commit_indexes_to_repo():
         # 5. Return to original branch
         
         if current_branch != base_branch:
-            print(f"Switching to {base_branch} to push indexes...")
+            print(f"Switching to {base_branch} to push {content_type}...")
             
             # Get the commit hash we just created
             commit_hash_result = run_command_safe(
@@ -604,6 +607,10 @@ def commit_indexes_to_repo():
                 check=True
             )
             index_commit_hash = commit_hash_result.stdout.strip()
+            
+            # Stash any uncommitted changes (e.g., regenerated indexes we're not pushing)
+            # This prevents checkout from failing due to uncommitted changes
+            run_command_safe(["git", "stash", "--include-untracked"], check=False)
             
             # Checkout base branch (create or reset local branch from origin)
             run_command_safe(["git", "fetch", "origin", base_branch], check=False)
@@ -617,8 +624,8 @@ def commit_indexes_to_repo():
             )
             
             if cherry_result.returncode != 0:
-                # If cherry-pick fails (conflict), just add and commit the indexes directly
-                print("Cherry-pick had conflicts, committing indexes directly...")
+                # If cherry-pick fails (conflict), just add and commit directly
+                print(f"Cherry-pick had conflicts, committing {content_type} directly...")
                 run_command_safe(["git", "cherry-pick", "--abort"], check=False)
                 run_command_safe(["git", "add", index_relative_path], check=True)
                 run_command_safe(
@@ -627,7 +634,7 @@ def commit_indexes_to_repo():
                 )
             
             # Push to base branch
-            print(f"Pushing indexes to {base_branch}...")
+            print(f"Pushing {content_type} to {base_branch}...")
             run_command_safe(
                 ["git", "push", "origin", base_branch],
                 check=True
@@ -636,27 +643,30 @@ def commit_indexes_to_repo():
             # Return to original branch
             run_command_safe(["git", "checkout", current_branch], check=True)
             
-            print(f"✅ Indexes committed and pushed to {base_branch}")
+            # Restore stashed changes (if any)
+            run_command_safe(["git", "stash", "pop"], check=False)
+            
+            print(f"✅ {content_type.capitalize()} committed and pushed to {base_branch}")
         else:
             # Already on base branch, just push
-            print(f"Pushing indexes to {base_branch}...")
+            print(f"Pushing {content_type} to {base_branch}...")
             run_command_safe(
                 ["git", "push", "origin", base_branch],
                 check=True
             )
-            print(f"✅ Indexes committed and pushed to {base_branch}")
+            print(f"✅ {content_type.capitalize()} committed and pushed to {base_branch}")
         os.chdir(original_cwd)
         return True
         
     except subprocess.CalledProcessError as e:
-        print(f"Warning: Failed to commit indexes: {sanitize_output(str(e))}")
+        print(f"Warning: Failed to commit {content_type}: {sanitize_output(str(e))}")
         try:
             os.chdir(original_cwd)
         except:
             pass
         return False
     except Exception as e:
-        print(f"Warning: Error committing indexes: {sanitize_output(str(e))}")
+        print(f"Warning: Error committing {content_type}: {sanitize_output(str(e))}")
         try:
             os.chdir(original_cwd)
         except:

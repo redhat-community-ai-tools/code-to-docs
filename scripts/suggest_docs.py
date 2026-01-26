@@ -599,7 +599,7 @@ def find_relevant_files_optimized(diff):
     # Commit summaries to repo so they persist across runs
     if summaries_generated:
         print("Committing file summaries to repository...")
-        commit_indexes_to_repo()
+        commit_indexes_to_repo(content_type="summaries")
     
     if not file_previews:
         return []
