@@ -556,8 +556,8 @@ def commit_indexes_to_repo(content_type="indexes"):
                 # Add only the safe summaries and the summaries manifest
                 for summary_path in safe_summaries:
                     run_command_safe(["git", "add", summary_path], check=False)
-                # Also add the summaries manifest
-                summaries_manifest_path = f"{index_relative_path}/{SUMMARIES_DIR}/{SUMMARIES_MANIFEST}"
+                # Also add the summaries manifest (stored at .doc-index/summaries_manifest.json)
+                summaries_manifest_path = f"{index_relative_path}/{SUMMARIES_MANIFEST}"
                 run_command_safe(["git", "add", summaries_manifest_path], check=False)
             else:
                 print(f"   No summaries safe to push, skipping commit")
@@ -624,14 +624,18 @@ def commit_indexes_to_repo(content_type="indexes"):
             )
             
             if cherry_result.returncode != 0:
-                # If cherry-pick fails (conflict), just add and commit directly
+                # If cherry-pick fails (conflict), apply stash to get our changes on main
                 print(f"Cherry-pick had conflicts, committing {content_type} directly...")
                 run_command_safe(["git", "cherry-pick", "--abort"], check=False)
+                # Apply stash to bring our changes to main
+                run_command_safe(["git", "stash", "pop"], check=False)
                 run_command_safe(["git", "add", index_relative_path], check=True)
                 run_command_safe(
                     ["git", "commit", "-m", commit_msg],
                     check=False  # May fail if no changes
                 )
+                # Re-stash for later (empty stash is ok)
+                run_command_safe(["git", "stash", "--include-untracked"], check=False)
             
             # Push to base branch
             print(f"Pushing {content_type} to {base_branch}...")
