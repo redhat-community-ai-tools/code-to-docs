@@ -511,6 +511,35 @@ def commit_indexes_to_repo():
             os.chdir(original_cwd)
             return False
         
+        # Check if the current branch is up-to-date with main before pushing
+        # This prevents older branches from overwriting newer indexes
+        base_branch = os.environ.get("DOCS_BASE_BRANCH", "main")
+        
+        # Fetch latest main to get accurate comparison
+        run_command_safe(["git", "fetch", "origin", base_branch], check=False)
+        
+        # Get the merge-base between current HEAD and origin/main
+        merge_base_result = run_command_safe(
+            ["git", "merge-base", "HEAD", f"origin/{base_branch}"],
+            check=False
+        )
+        
+        # Get the latest commit on origin/main
+        main_head_result = run_command_safe(
+            ["git", "rev-parse", f"origin/{base_branch}"],
+            check=False
+        )
+        
+        if merge_base_result.returncode == 0 and main_head_result.returncode == 0:
+            merge_base = merge_base_result.stdout.strip()
+            main_head = main_head_result.stdout.strip()
+            
+            if merge_base != main_head:
+                print(f"⚠️  Branch is not up-to-date with {base_branch}, skipping index push to avoid overwriting newer indexes")
+                print(f"   Indexes will be used locally but not committed to {base_branch}")
+                os.chdir(original_cwd)
+                return False
+        
         # Add the index directory
         run_command_safe(["git", "add", index_relative_path], check=True)
         
@@ -522,7 +551,7 @@ def commit_indexes_to_repo():
         )
         
         # Push to the base/main branch so indexes are reusable across all PRs
-        base_branch = os.environ.get("DOCS_BASE_BRANCH", "main")
+        # (base_branch already defined above for the up-to-date check)
         
         # Get current branch to restore later
         current_branch_result = run_command_safe(
