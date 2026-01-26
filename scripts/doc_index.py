@@ -1050,8 +1050,14 @@ def load_cached_summary(file_path, docs_root=None):
     manifest = load_summaries_manifest(docs_root)
     file_key = str(file_path)
     
+    # Debug: show manifest state on first call
+    manifest_files = manifest.get("files", {})
+    if len(manifest_files) > 0 and not hasattr(load_cached_summary, '_debug_shown'):
+        print(f"DEBUG: Summaries manifest has {len(manifest_files)} entries")
+        load_cached_summary._debug_shown = True
+    
     # Check if we have a cached summary
-    if file_key not in manifest.get("files", {}):
+    if file_key not in manifest_files:
         return None
     
     # Check if the file has changed since the summary was generated
@@ -1060,7 +1066,7 @@ def load_cached_summary(file_path, docs_root=None):
     except:
         current_hash = hash_file(file_path)
     
-    stored_hash = manifest["files"][file_key].get("hash")
+    stored_hash = manifest_files[file_key].get("hash")
     if current_hash != stored_hash:
         return None  # File changed, need to regenerate
     
