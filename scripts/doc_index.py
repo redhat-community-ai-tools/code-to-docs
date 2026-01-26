@@ -541,8 +541,13 @@ def commit_indexes_to_repo(content_type="indexes"):
             main_head = main_head_result.stdout.strip()
             branch_up_to_date = (merge_base == main_head)
         
+        # Track what files to add (used both here and after branch switch)
+        files_to_add = []
+        add_all = False
+        
         if branch_up_to_date:
             # Branch is up-to-date, safe to push everything
+            add_all = True
             run_command_safe(["git", "add", index_relative_path], check=True)
         else:
             # Branch is not up-to-date - be selective about what we push
@@ -555,6 +560,10 @@ def commit_indexes_to_repo(content_type="indexes"):
             
             if safe_summaries:
                 print(f"   Found {len(safe_summaries)} summaries safe to push (doc content matches main)")
+                # Track the files we're adding (for use after branch switch)
+                files_to_add = list(safe_summaries)
+                files_to_add.append(f"{index_relative_path}/{SUMMARIES_MANIFEST}")
+                
                 # Add only the safe summaries and the summaries manifest
                 for summary_path in safe_summaries:
                     run_command_safe(["git", "add", summary_path], check=False)
@@ -625,8 +634,13 @@ def commit_indexes_to_repo(content_type="indexes"):
                     shutil.rmtree(index_full_path)
                 shutil.copytree(temp_index_path, index_full_path)
             
-            # Add and commit
-            run_command_safe(["git", "add", index_relative_path], check=True)
+            # Add files - respect the same selective logic we used on PR branch
+            if add_all:
+                run_command_safe(["git", "add", index_relative_path], check=True)
+            else:
+                # Add only the specific files we determined were safe
+                for file_path in files_to_add:
+                    run_command_safe(["git", "add", file_path], check=False)
             run_command_safe(
                 ["git", "commit", "-m", commit_msg],
                 check=False  # May fail if no changes
