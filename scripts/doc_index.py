@@ -1242,12 +1242,39 @@ def doc_matches_main(doc_file_path, base_branch="main"):
         return False
 
 
+def load_manifest_from_main(base_branch="main"):
+    """Load the summaries manifest from the main branch (via git show)."""
+    docs_root = get_docs_root()
+    
+    # Get the relative path to manifest from repo root
+    # We need to construct the path as git sees it
+    docs_subfolder = os.environ.get("DOCS_SUBFOLDER", "")
+    if docs_subfolder:
+        manifest_git_path = f"{docs_subfolder}/{INDEX_DIR}/{SUMMARIES_MANIFEST}"
+    else:
+        manifest_git_path = f"{INDEX_DIR}/{SUMMARIES_MANIFEST}"
+    
+    result = run_command_safe(
+        ["git", "show", f"origin/{base_branch}:{manifest_git_path}"],
+        check=False
+    )
+    
+    if result.returncode == 0 and result.stdout.strip():
+        try:
+            return json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return {"version": "1.0", "files": {}}
+    
+    return {"version": "1.0", "files": {}}
+
+
 def get_safe_summaries_to_push(base_branch="main"):
     """
     Get list of summary files that are safe to push to main.
     
-    A summary is safe to push if the doc file it was generated from
-    matches the same doc file on origin/main.
+    Only returns summaries that are:
+    1. NEW (not already on main), AND
+    2. Safe (doc content matches main - prevents pushing summaries for modified docs)
     
     Args:
         base_branch: The base branch to compare against
@@ -1256,16 +1283,26 @@ def get_safe_summaries_to_push(base_branch="main"):
         list: List of summary file paths that are safe to push
     """
     docs_root = get_docs_root()
-    manifest = load_summaries_manifest(docs_root)
+    local_manifest = load_summaries_manifest(docs_root)
+    main_manifest = load_manifest_from_main(base_branch)
+    
+    main_files = main_manifest.get("files", {})
     
     safe_summaries = []
     
-    for doc_path, info in manifest.get("files", {}).items():
+    for doc_path, info in local_manifest.get("files", {}).items():
         summary_file = info.get("summary_file")
         if not summary_file:
             continue
         
-        # Check if doc matches main
+        # Skip if already on main with same hash (no need to re-push)
+        if doc_path in main_files:
+            main_hash = main_files[doc_path].get("hash")
+            local_hash = info.get("hash")
+            if main_hash == local_hash:
+                continue  # Already on main, skip
+        
+        # Check if doc matches main (safe to push)
         if doc_matches_main(doc_path, base_branch):
             summary_path = get_summaries_dir(docs_root) / summary_file
             if summary_path.exists():
