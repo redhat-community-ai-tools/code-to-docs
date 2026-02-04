@@ -2,6 +2,7 @@ import os
 import subprocess
 import argparse
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from google import genai
 from google.genai import types
 
@@ -13,6 +14,20 @@ from security_utils import (
     setup_git_credentials,
     validate_docs_file_extension,
     validate_docs_subfolder
+)
+
+# Import documentation index module
+from doc_index import (
+    indexes_exist,
+    fetch_indexes_from_main,
+    build_all_indexes,
+    update_indexes_if_needed,
+    find_relevant_areas_from_indexes,
+    get_files_in_areas,
+    load_all_indexes,
+    commit_indexes_to_repo,
+    get_or_generate_summary,
+    summaries_exist
 )
 
 # === CONFIG ===
@@ -235,8 +250,8 @@ def setup_docs_environment():
             return False
 
 
-def summarize_long_file(file_path, content):
-    """Generate AI summary for the given file content"""
+def summarize_long_file(file_path, content, max_retries=3):
+    """Generate AI summary for the given file content with retry logic"""
     print(f"Generating summary for long file: {file_path}")
     
     prompt = f"""
@@ -255,15 +270,29 @@ Content:
 Provide a detailed summary that would help an AI system understand when this file should be updated based on code changes.
 """
     
-    response = client.models.generate_content(
-        model="gemini-3-flash-preview",
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            thinking_config=types.ThinkingConfig(thinking_budget=0)
-        ),
-    )
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model="gemini-3-flash-preview",
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    thinking_config=types.ThinkingConfig(thinking_budget=0)
+                ),
+            )
+            
+            if response and response.text:
+                return response.text.strip()
+            else:
+                print(f"Empty response for {file_path} (attempt {attempt + 1}), retrying...")
+                
+        except Exception as e:
+            error_str = sanitize_output(str(e))
+            wait_time = (attempt + 1) * 3
+            print(f"Error for {file_path} (attempt {attempt + 1}/{max_retries}): {error_str}, waiting {wait_time}s...")
+            import time
+            time.sleep(wait_time)
     
-    return response.text.strip()
+    raise Exception(f"Failed to summarize {file_path} after {max_retries} attempts")
 
 def get_file_content_or_summaries(line_threshold=300):
     """Get file content - full content for short files, AI summaries for long files"""
@@ -273,6 +302,9 @@ def get_file_content_or_summaries(line_threshold=300):
     doc_files.extend(list(Path(".").rglob("*.adoc")))
     doc_files.extend(list(Path(".").rglob("*.md")))
     doc_files.extend(list(Path(".").rglob("*.rst")))
+    
+    # Filter out internal index files (.doc-index/) - these are for internal use only
+    doc_files = [f for f in doc_files if ".doc-index" not in str(f)]
     
     # Deduplicate file paths BEFORE processing to avoid duplicate work
     seen_paths = set()
@@ -311,73 +343,123 @@ def get_file_content_or_summaries(line_threshold=300):
     print(f"DEBUG: Returning {len(file_data)} files for processing")
     return file_data
 
-def ask_gemini_for_relevant_files(diff, file_previews):
+def _process_file_selection_batch(diff, batch, batch_num, total_batches, max_retries=3):
+    """Process a single batch of files for relevance selection."""
+    context = "\n\n".join(
+        [f"File: {fname}\nPreview:\n{preview}" for fname, preview in batch]
+    )
+
+    prompt = f"""
+    You are an ULTRA-CONSERVATIVE documentation assistant. Select ONLY files that DIRECTLY document the EXACT code being changed.
+
+    Git diff from this PR:
+    {diff}
+
+    Documentation files to evaluate:
+    {context}
+
+    STRICT SELECTION RULES:
+    1. ONLY select files that document the EXACT code, module, or component being modified in the diff
+    2. DO NOT select files just because they mention related concepts or technologies
+    3. DO NOT select overview or index files unless absolutely necessary
+    4. Select the MINIMUM number of files necessary
+    5. When in doubt, DO NOT select the file
+    6. Prefer returning NONE over selecting uncertain files
+    
+    AVOID COMMON OVER-SELECTION MISTAKES:
+    7. If a doc file mentions the same technology (e.g., a library, tool, or protocol) but for a DIFFERENT component or purpose, DO NOT select it
+    8. If a doc file is about USER-CONFIGURED items (e.g., custom configs, user containers, plugins) but the code change is about INTERNAL/SYSTEM behavior, DO NOT select it
+    9. If a doc file is for a different subsystem that happens to share dependencies with the changed code, DO NOT select it
+    10. Release notes and changelogs should ONLY be selected if explicitly requested or if the change is a breaking change
+
+    Return ONLY file paths (one per line) that DIRECTLY match the code changes.
+    If no files need updates, return "NONE".
+    """
+
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model="gemini-3-flash-preview",
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    thinking_config=types.ThinkingConfig(thinking_budget=0)
+                ),
+            )
+            
+            result_text = response.text.strip() if response.text else ""
+            if not result_text:
+                if attempt < max_retries - 1:
+                    import time
+                    time.sleep(2 * (attempt + 1))
+                    continue
+                return batch_num, []
+            
+            if result_text.upper() == "NONE":
+                print(f"Batch {batch_num}: No relevant files found")
+                return batch_num, []
+            
+            # Filter to only documentation files
+            suggested_files = [line.strip() for line in result_text.splitlines() if line.strip()]
+            filtered_files = [f for f in suggested_files if f.endswith('.adoc') or f.endswith('.md') or f.endswith('.rst')]
+            
+            if len(filtered_files) != len(suggested_files):
+                skipped = [f for f in suggested_files if not (f.endswith('.adoc') or f.endswith('.md') or f.endswith('.rst'))]
+                print(f"Batch {batch_num}: Skipping non-documentation files: {skipped}")
+            
+            print(f"Batch {batch_num}: Found {len(filtered_files)} relevant files")
+            return batch_num, filtered_files
+            
+        except Exception as e:
+            if attempt < max_retries - 1:
+                import time
+                wait_time = 3 * (attempt + 1)
+                print(f"Batch {batch_num}: Error (attempt {attempt + 1}), waiting {wait_time}s...")
+                time.sleep(wait_time)
+            else:
+                print(f"Batch {batch_num}: Failed after retries - {sanitize_output(str(e))}")
+                return batch_num, []
+    
+    return batch_num, []
+
+
+def ask_gemini_for_relevant_files(diff, file_previews, max_workers=5):
     all_relevant_files = []
     batch_size = 10
     
-    # Process files in batches of 10
+    # Create batches
+    batches = []
     for i in range(0, len(file_previews), batch_size):
         batch = file_previews[i:i + batch_size]
         batch_num = (i // batch_size) + 1
-        total_batches = (len(file_previews) + batch_size - 1) // batch_size
+        batches.append((batch, batch_num))
+    
+    total_batches = len(batches)
+    print(f"Processing {len(file_previews)} files in {total_batches} batches (parallel, {max_workers} workers)...")
+    
+    # Process batches in parallel
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_process_file_selection_batch, diff, batch, batch_num, total_batches): batch_num
+            for batch, batch_num in batches
+        }
         
-        print(f"Processing batch {batch_num}/{total_batches} ({len(batch)} files)...")
-        
-        # Create context for this batch of 10 files
-        context = "\n\n".join(
-            [f"File: {fname}\nPreview:\n{preview}" for fname, preview in batch]
-        )
-
-        prompt = f"""
-        You are an ULTRA-CONSERVATIVE documentation assistant. Select ONLY files that DIRECTLY document the EXACT code being changed.
-
-        Git diff from this PR:
-        {diff}
-
-        Documentation files to evaluate:
-        {context}
-
-        STRICT SELECTION RULES:
-        1. ONLY select files that document the EXACT code, module, or component being modified in the diff
-        2. DO NOT select files just because they mention related concepts or technologies
-        3. DO NOT select overview or index files unless absolutely necessary
-        4. Select the MINIMUM number of files necessary
-        5. When in doubt, DO NOT select the file
-        6. Prefer returning NONE over selecting uncertain files
-        
-        AVOID COMMON OVER-SELECTION MISTAKES:
-        7. If a doc file mentions the same technology (e.g., a library, tool, or protocol) but for a DIFFERENT component or purpose, DO NOT select it
-        8. If a doc file is about USER-CONFIGURED items (e.g., custom configs, user containers, plugins) but the code change is about INTERNAL/SYSTEM behavior, DO NOT select it
-        9. If a doc file is for a different subsystem that happens to share dependencies with the changed code, DO NOT select it
-        10. Release notes and changelogs should ONLY be selected if explicitly requested or if the change is a breaking change
-
-        Return ONLY file paths (one per line) that DIRECTLY match the code changes.
-        If no files need updates, return "NONE".
-        """
-
-        response = client.models.generate_content(
-            model="gemini-3-flash-preview",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(thinking_budget=0)
-            ),
-        )
-        
-        result_text = response.text.strip()
-        if result_text.upper() == "NONE":
-            print(f"Batch {batch_num}: No relevant files found")
-            continue
-        
-        # Filter out source code files - only keep documentation files (.adoc, .md, and .rst)
-        suggested_files = [line.strip() for line in result_text.splitlines() if line.strip()]
-        filtered_files = [f for f in suggested_files if f.endswith('.adoc') or f.endswith('.md') or f.endswith('.rst')]
-        
-        if len(filtered_files) != len(suggested_files):
-            skipped = [f for f in suggested_files if not (f.endswith('.adoc') or f.endswith('.md') or f.endswith('.rst'))]
-            print(f"Batch {batch_num}: Skipping non-documentation files: {skipped}")
-        
-        all_relevant_files.extend(filtered_files)
-        print(f"Batch {batch_num}: Found {len(filtered_files)} relevant files")
+        for future in as_completed(futures):
+            batch_num, files = future.result()
+            all_relevant_files.extend(files)
+    
+    # Strip DOCS_SUBFOLDER prefix if AI included it (common issue)
+    docs_subfolder = os.environ.get("DOCS_SUBFOLDER", "")
+    if docs_subfolder:
+        cleaned_files = []
+        for f in all_relevant_files:
+            # Remove the subfolder prefix if present (e.g., "subfolder/file.rst" -> "file.rst")
+            if f.startswith(docs_subfolder + "/"):
+                cleaned_files.append(f[len(docs_subfolder) + 1:])
+            elif f.startswith(docs_subfolder):
+                cleaned_files.append(f[len(docs_subfolder):].lstrip("/"))
+            else:
+                cleaned_files.append(f)
+        all_relevant_files = cleaned_files
     
     # Deduplicate while preserving order
     seen = set()
@@ -392,6 +474,191 @@ def ask_gemini_for_relevant_files(diff, file_previews):
     
     print(f"Total relevant files found: {len(unique_files)}")
     return unique_files
+
+
+def find_relevant_files_optimized(diff):
+    """
+    Optimized file discovery using semantic indexes.
+    
+    This is a two-stage approach:
+    1. Use indexes to find relevant documentation AREAS (1 API call)
+    2. Load files from those areas and use AI to pick exact files (1 API call)
+    
+    Falls back to full scan if indexes don't exist or AI requests it.
+    
+    Args:
+        diff: The code diff to analyze
+    
+    Returns:
+        list: List of relevant file paths, or None to signal full scan needed
+    """
+    # Try to fetch indexes from main branch if they don't exist locally
+    fetch_indexes_from_main()
+    
+    # Check if indexes exist
+    indexes_changed = False
+    if not indexes_exist():
+        print("No indexes found. Building indexes first...")
+        build_all_indexes()
+        indexes_changed = True
+    else:
+        # Update indexes for any changed docs
+        updated = update_indexes_if_needed()
+        if updated:
+            print(f"Updated indexes for: {updated}")
+            indexes_changed = True
+    
+    # Commit indexes to repo so they persist across runs
+    if indexes_changed:
+        print("Committing indexes to repository...")
+        commit_indexes_to_repo()
+    
+    # Stage 1: Find relevant AREAS using indexes (1 API call)
+    print("Finding relevant documentation areas from indexes...")
+    relevant_areas = find_relevant_areas_from_indexes(diff, client)
+    
+    if relevant_areas is None:
+        # AI requested full scan or error occurred
+        print("Falling back to full scan...")
+        return None
+    
+    if not relevant_areas:
+        print("No relevant areas found")
+        return []
+    
+    # Stage 2: Get files from relevant areas
+    candidate_files = get_files_in_areas(relevant_areas)
+    print(f"Found {len(candidate_files)} candidate files in areas: {relevant_areas}")
+    
+    if not candidate_files:
+        return []
+    
+    # Load content/summaries for candidate files only (parallel for speed)
+    file_previews = []
+    files_needing_summary = []
+    files_with_content = []
+    
+    # First pass: identify which files need summaries
+    for file_path in candidate_files:
+        try:
+            content = Path(file_path).read_text(encoding='utf-8')
+            line_count = len(content.split('\n'))
+            
+            if line_count > 300:
+                files_needing_summary.append((file_path, content))
+            else:
+                files_with_content.append((file_path, content))
+        except Exception as e:
+            print(f"Skipping {file_path}: {sanitize_output(str(e))}")
+    
+    # Generate summaries in parallel for long files (with caching)
+    summaries_generated = False
+    if files_needing_summary:
+        # Check how many need actual generation vs cached
+        cached_count = 0
+        to_generate = []
+        
+        for file_path, content in files_needing_summary:
+            from doc_index import load_cached_summary
+            cached = load_cached_summary(file_path)
+            if cached:
+                file_previews.append((file_path, cached))
+                cached_count += 1
+            else:
+                to_generate.append((file_path, content))
+        
+        if cached_count > 0:
+            print(f"Using {cached_count} cached summaries")
+        
+        if to_generate:
+            print(f"Generating {len(to_generate)} new summaries in parallel...")
+            summaries_generated = True
+            
+            def generate_summary_task(args):
+                file_path, content = args
+                try:
+                    # Generate and cache the summary
+                    summary = get_or_generate_summary(file_path, content, summarize_long_file)
+                    return (file_path, summary)
+                except Exception as e:
+                    print(f"Error summarizing {file_path}: {sanitize_output(str(e))}")
+                    # Fallback to truncated content
+                    return (file_path, content[:5000] + "\n... [truncated]")
+            
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                futures = {executor.submit(generate_summary_task, args): args[0] 
+                          for args in to_generate}
+                for future in as_completed(futures):
+                    result = future.result()
+                    if result:
+                        file_previews.append(result)
+    
+    # Add files that didn't need summaries
+    file_previews.extend(files_with_content)
+    
+    # Commit summaries to repo so they persist across runs
+    if summaries_generated:
+        print("Committing file summaries to repository...")
+        commit_indexes_to_repo(content_type="summaries")
+    
+    if not file_previews:
+        return []
+    
+    # Stage 3: Use AI to pick exact files from candidates (1 API call typically)
+    # Since we have fewer files now, this is much faster
+    print(f"AI selecting exact files from {len(file_previews)} candidates...")
+    relevant_files = ask_gemini_for_relevant_files(diff, file_previews)
+    
+    return relevant_files
+
+
+def generate_updates_parallel(diff, relevant_files, max_workers=5):
+    """
+    Generate documentation updates in parallel.
+    
+    Args:
+        diff: The code diff
+        relevant_files: List of file paths to update
+        max_workers: Maximum parallel threads
+    
+    Returns:
+        list: List of (file_path, original_content, updated_content) tuples
+    """
+    results = []
+    
+    def process_file(file_path):
+        """Process a single file for updates"""
+        current = load_full_content(file_path)
+        if not current:
+            return None
+        
+        print(f"Checking if {file_path} needs an update...")
+        updated = ask_gemini_for_updated_content(diff, file_path, current)
+        
+        if updated.strip() == "NO_UPDATE_NEEDED":
+            print(f"No update needed for {file_path}")
+            return None
+        
+        return (file_path, current, updated)
+    
+    # Process files in parallel
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(process_file, file_path): file_path
+            for file_path in relevant_files
+        }
+        
+        for future in as_completed(futures):
+            file_path = futures[future]
+            try:
+                result = future.result()
+                if result:
+                    results.append(result)
+            except Exception as e:
+                print(f"❌ Error processing {file_path}: {sanitize_output(str(e))}")
+    
+    return results
+
 
 def load_full_content(file_path):
     """
@@ -857,7 +1124,22 @@ def push_and_open_pr(modified_files, commit_info=None):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true", help="Simulate changes without writing files or pushing PR")
+    parser.add_argument("--use-index", action="store_true", default=True, help="Use semantic indexes for faster file discovery (default: True)")
+    parser.add_argument("--no-index", action="store_true", help="Disable index-based optimization, use full scan")
+    parser.add_argument("--build-index", action="store_true", help="Build/rebuild indexes and exit")
+    parser.add_argument("--parallel-updates", action="store_true", default=True, help="Generate updates in parallel (default: True)")
+    parser.add_argument("--max-workers", type=int, default=5, help="Max parallel workers for update generation (default: 5)")
     args = parser.parse_args()
+
+    # Handle --build-index mode
+    if args.build_index:
+        print("Building documentation indexes...")
+        if not setup_docs_environment():
+            print("Failed to set up docs environment")
+            return
+        result = build_all_indexes(force=True)
+        print(f"Index build complete: {result['status']}")
+        return
 
     # Detect which command was used: [review-docs] or [update-docs]
     comment_body = os.environ.get("COMMENT_BODY", "")
@@ -870,7 +1152,11 @@ def main():
         # Fallback to update mode if no command detected (backward compatibility)
         update_mode = True
     
+    # Determine if we should use indexes
+    use_index = args.use_index and not args.no_index
+    
     print(f"Mode: {'Review' if review_mode and not update_mode else 'Update' if update_mode and not review_mode else 'Review + Update'}")
+    print(f"Optimization: {'Index-based' if use_index else 'Full scan'}")
 
     diff = get_diff()
     if not diff:
@@ -889,16 +1175,30 @@ def main():
     if not setup_docs_environment():
         print("Failed to set up docs environment")
         return
+    
+    # === FILE DISCOVERY ===
+    if use_index:
+        # Optimized path: use semantic indexes
+        print("Using optimized index-based file discovery...")
+        relevant_files = find_relevant_files_optimized(diff)
         
-    file_previews = get_file_content_or_summaries()
-    print(f"DEBUG: Collected {len(file_previews)} file previews")
+        if relevant_files is None:
+            # Fallback to full scan was requested
+            print("Index-based discovery requested full scan, falling back...")
+            use_index = False
+    
+    if not use_index:
+        # Original path: full scan
+        file_previews = get_file_content_or_summaries()
+        print(f"DEBUG: Collected {len(file_previews)} file previews")
 
-    if not file_previews:
-        print("No documentation files found to process.")
-        return
+        if not file_previews:
+            print("No documentation files found to process.")
+            return
 
-    print("Asking Gemini for relevant files...")
-    relevant_files = ask_gemini_for_relevant_files(diff, file_previews)
+        print("Asking Gemini for relevant files...")
+        relevant_files = ask_gemini_for_relevant_files(diff, file_previews)
+    
     if not relevant_files:
         print("Gemini did not suggest any files.")
         # Still post a comment saying no updates needed
@@ -909,32 +1209,47 @@ def main():
 
     print("Files selected by Gemini:", relevant_files)
 
-    # Collect files with their updated content
+    # === GENERATE UPDATES ===
     files_with_content = []
     modified_files = []
     
-    for file_path in relevant_files:
-        current = load_full_content(file_path)
-        if not current:
-            continue
+    if args.parallel_updates and len(relevant_files) > 1:
+        # Parallel update generation
+        print(f"Generating updates in parallel (max {args.max_workers} workers)...")
+        files_with_content = generate_updates_parallel(diff, relevant_files, max_workers=args.max_workers)
+        
+        # Write files if in update mode
+        for file_path, current, updated in files_with_content:
+            if update_mode and not args.dry_run:
+                print(f"Updating {file_path}...")
+                if overwrite_file(file_path, updated):
+                    modified_files.append(file_path)
+            elif args.dry_run:
+                print(f"[Dry Run] Would update {file_path}")
+    else:
+        # Sequential update generation (original behavior)
+        for file_path in relevant_files:
+            current = load_full_content(file_path)
+            if not current:
+                continue
 
-        print(f"Checking if {file_path} needs an update...")
-        updated = ask_gemini_for_updated_content(diff, file_path, current)
+            print(f"Checking if {file_path} needs an update...")
+            updated = ask_gemini_for_updated_content(diff, file_path, current)
 
-        if updated.strip() == "NO_UPDATE_NEEDED":
-            print(f"No update needed for {file_path}")
-            continue
+            if updated.strip() == "NO_UPDATE_NEEDED":
+                print(f"No update needed for {file_path}")
+                continue
 
-        # Store both original and updated content for review comment
-        files_with_content.append((file_path, current, updated))
+            # Store both original and updated content for review comment
+            files_with_content.append((file_path, current, updated))
 
-        # Only write files if in update mode (not review-only mode)
-        if update_mode and not args.dry_run:
-            print(f"Updating {file_path}...")
-            if overwrite_file(file_path, updated):
-                modified_files.append(file_path)
-        elif args.dry_run:
-            print(f"[Dry Run] Would update {file_path}")
+            # Only write files if in update mode (not review-only mode)
+            if update_mode and not args.dry_run:
+                print(f"Updating {file_path}...")
+                if overwrite_file(file_path, updated):
+                    modified_files.append(file_path)
+            elif args.dry_run:
+                print(f"[Dry Run] Would update {file_path}")
 
     # Handle different modes
     if files_with_content:

@@ -19,6 +19,7 @@ WORKDIR /app
 # Copy the scripts
 COPY scripts/suggest_docs.py /app/suggest_docs.py
 COPY scripts/security_utils.py /app/security_utils.py
+COPY scripts/doc_index.py /app/doc_index.py
 
 # Copy entrypoint script
 COPY entrypoint.sh /entrypoint.sh
