@@ -1,4 +1,6 @@
 import os
+import re
+import json
 import subprocess
 import argparse
 from pathlib import Path
@@ -612,28 +614,34 @@ def find_relevant_files_optimized(diff):
     return relevant_files
 
 
-def generate_updates_parallel(diff, relevant_files, max_workers=5):
+def generate_updates_parallel(diff, relevant_files, max_workers=5, user_instructions="", file_instructions=None):
     """
     Generate documentation updates in parallel.
-    
+
     Args:
         diff: The code diff
         relevant_files: List of file paths to update
         max_workers: Maximum parallel threads
-    
+        user_instructions: Optional global reviewer instructions to pass to the AI
+        file_instructions: Optional dict mapping filenames to per-file instructions
+
     Returns:
         list: List of (file_path, original_content, updated_content) tuples
     """
     results = []
-    
+
     def process_file(file_path):
         """Process a single file for updates"""
         current = load_full_content(file_path)
         if not current:
             return None
-        
+
         print(f"Checking if {file_path} needs an update...")
-        updated = ask_gemini_for_updated_content(diff, file_path, current)
+        updated = ask_gemini_for_updated_content(
+            diff, file_path, current,
+            user_instructions=user_instructions,
+            file_instructions=file_instructions
+        )
         
         if updated.strip() == "NO_UPDATE_NEEDED":
             print(f"No update needed for {file_path}")
@@ -675,7 +683,7 @@ def load_full_content(file_path):
         print(f"Failed to read {file_path}: {sanitize_output(str(e))}")
         return ""
 
-def ask_gemini_for_updated_content(diff, file_path, current_content):
+def ask_gemini_for_updated_content(diff, file_path, current_content, user_instructions="", file_instructions=None):
     # Determine file format based on extension
     is_markdown = file_path.endswith('.md')
     is_asciidoc = file_path.endswith('.adoc')
@@ -791,6 +799,22 @@ Return ONLY:
 - The complete updated file with ONLY the minimal necessary changes
 """
 
+    # Build combined instructions from global + per-file
+    combined_instructions = []
+    if user_instructions:
+        combined_instructions.append(f"Global: {user_instructions}")
+    if file_instructions:
+        per_file = _resolve_file_instructions(file_path, file_instructions)
+        if per_file:
+            combined_instructions.append(f"For this file specifically: {per_file}")
+
+    if combined_instructions:
+        prompt += f"""
+
+ADDITIONAL INSTRUCTIONS FROM THE REVIEWER:
+The human reviewer has provided the following guidance. Follow these instructions carefully:
+{chr(10).join(combined_instructions)}
+"""
 
     response = client.models.generate_content(
         model="gemini-3-flash-preview",
@@ -890,12 +914,207 @@ def generate_summary_explanation(files_with_content, commit_info=None):
                 file_display = f"[{file_path}]({file_url})"
             else:
                 file_display = f"**{file_path}**"
-            summaries.append(f"- {file_display}: {summary}")
+            summaries.append(f"- [x] {file_display}: {summary}")
             filtered_files.append(item)
         elif summary.strip().upper() == "SKIP":
             print(f"Filtering out {file_path}: no changes needed")
     
     return "\n".join(summaries) if summaries else "", filtered_files
+
+def parse_update_instructions(comment_body):
+    """
+    Parse global and per-file instructions from an [update-docs] comment.
+
+    Supports two forms:
+      [update-docs] global instruction here
+      pools.rst: only update the set-quota usage line
+      health-checks.rst: don't modify existing sections
+
+    The first line after [update-docs] is the global instruction.
+    Subsequent lines matching "<filename>: <instruction>" are per-file.
+
+    Args:
+        comment_body: The full comment text
+
+    Returns:
+        tuple: (global_instructions: str, file_instructions: dict[str, str])
+    """
+    global_instructions = ""
+    file_instructions = {}
+
+    # Find [update-docs] and everything after it
+    match = re.search(r'\[update-docs\]\s*(.*)', comment_body, re.IGNORECASE | re.DOTALL)
+    if not match:
+        return global_instructions, file_instructions
+
+    after_command = match.group(1).strip()
+    if not after_command:
+        return global_instructions, file_instructions
+
+    lines = after_command.split('\n')
+
+    # Match lines where the part before ":" looks like a doc file path
+    file_pattern = re.compile(
+        r'^([\w./_-]*\.(?:rst|md|adoc))\s*:\s*(.+)$',
+        re.IGNORECASE
+    )
+
+    # First line is global instructions, unless it matches the per-file pattern
+    first_line = lines[0].strip()
+    first_match = file_pattern.match(first_line)
+    if first_match:
+        file_instructions[first_match.group(1).strip()] = first_match.group(2).strip()
+    else:
+        global_instructions = first_line
+
+    # Remaining lines: check for per-file instructions
+    for line in lines[1:]:
+        line = line.strip()
+        if not line:
+            continue
+        file_match = file_pattern.match(line)
+        if file_match:
+            file_instructions[file_match.group(1).strip()] = file_match.group(2).strip()
+
+    if global_instructions:
+        print(f"Global instructions: {global_instructions}")
+    if file_instructions:
+        print(f"Per-file instructions: {file_instructions}")
+
+    return global_instructions, file_instructions
+
+
+def _resolve_file_instructions(file_path, file_instructions):
+    """
+    Find per-file instructions for a given file path.
+
+    Matches by exact path, basename, or path suffix to allow users to write
+    just 'pools.rst' instead of 'rados/operations/pools.rst'.
+
+    Args:
+        file_path: Full relative path (e.g. 'rados/operations/pools.rst')
+        file_instructions: Dict mapping filename patterns to instructions
+
+    Returns:
+        str: The matching instruction, or empty string if none
+    """
+    if not file_instructions:
+        return ""
+
+    basename = os.path.basename(file_path)
+
+    for pattern, instruction in file_instructions.items():
+        # Exact match
+        if pattern == file_path:
+            return instruction
+        # Basename match (e.g. 'pools.rst' matches 'rados/operations/pools.rst')
+        if pattern == basename:
+            return instruction
+        # Suffix match (e.g. 'operations/pools.rst' matches 'rados/operations/pools.rst')
+        if file_path.endswith('/' + pattern):
+            return instruction
+
+    return ""
+
+
+def parse_previous_review(pr_number):
+    """
+    Find the most recent bot review comment on the PR and parse interactive selections.
+
+    Looks for a comment containing the '## 📚 Documentation Review' header,
+    then extracts:
+    - Checked files (accepted): lines matching '- [x] ...'
+    - Unchecked files (rejected): lines matching '- [ ] ...'
+
+    Args:
+        pr_number: The PR number to search comments on
+
+    Returns:
+        dict with keys:
+            review_found (bool): Whether a review comment was found
+            accepted_files (list[str]): File paths the user kept checked
+            rejected_files (list[str]): File paths the user unchecked
+            review_commit (str|None): The commit hash the review was based on
+    """
+    result = {
+        "review_found": False,
+        "accepted_files": [],
+        "rejected_files": [],
+        "review_commit": None,
+    }
+
+    gh_token = os.environ.get("GH_TOKEN")
+    if not gh_token or not pr_number or pr_number == "unknown":
+        return result
+
+    try:
+        # Fetch all comments on the PR as JSON
+        cmd_result = run_command_safe(
+            ["gh", "pr", "view", str(pr_number), "--json", "comments"],
+            env={**os.environ, "GH_TOKEN": gh_token},
+            check=False,
+        )
+
+        if cmd_result.returncode != 0:
+            print(f"Warning: Could not fetch PR comments: {sanitize_output(cmd_result.stderr or '')}")
+            return result
+
+        data = json.loads(cmd_result.stdout)
+        comments = data.get("comments", [])
+
+        # Find the most recent review comment (search from newest to oldest)
+        review_body = None
+        for comment in reversed(comments):
+            body = comment.get("body", "")
+            if "## 📚 Documentation Review" in body and "Select files to update" in body:
+                review_body = body
+                break
+
+        if review_body is None:
+            print("No previous interactive review comment found")
+            return result
+
+        result["review_found"] = True
+        print("Found previous interactive review comment")
+
+        # Parse checked/unchecked file lines
+        # Patterns: '- [x] [path](url): summary' or '- [x] **path**: summary'
+        # and:      '- [ ] [path](url): summary' or '- [ ] **path**: summary'
+        checkbox_pattern = re.compile(
+            r'^- \[([ xX])\] '           # checkbox
+            r'(?:'
+            r'\[([^\]]+)\]\([^)]+\)'     # [path](url) form
+            r'|'
+            r'\*\*([^*]+)\*\*'           # **path** form
+            r')'
+            r':'                          # colon separator
+        , re.MULTILINE)
+
+        for match in checkbox_pattern.finditer(review_body):
+            checked = match.group(1).lower() == 'x'
+            file_path = match.group(2) or match.group(3)
+            file_path = file_path.strip()
+            if checked:
+                result["accepted_files"].append(file_path)
+            else:
+                result["rejected_files"].append(file_path)
+
+        # Parse the commit hash from 'Latest commit: `abc1234`'
+        commit_match = re.search(r'Latest commit: `([a-f0-9]+)`', review_body)
+        if commit_match:
+            result["review_commit"] = commit_match.group(1)
+
+        print(f"  Accepted files: {result['accepted_files']}")
+        print(f"  Rejected files: {result['rejected_files']}")
+        if result["review_commit"]:
+            print(f"  Review was based on commit: {result['review_commit']}")
+
+        return result
+
+    except Exception as e:
+        print(f"Warning: Could not parse previous review: {sanitize_output(str(e))}")
+        return result
+
 
 def post_review_comment(files_with_content, pr_number, commit_info=None, include_full_content=True):
     """
@@ -939,11 +1158,13 @@ def post_review_comment(files_with_content, pr_number, commit_info=None, include
             comment_parts.append("")
             
             if summary:
-                comment_parts.append("### 📋 Summary")
+                comment_parts.append("### 📋 Select files to update")
+                comment_parts.append("")
+                comment_parts.append("Uncheck any files you do **not** want updated:")
                 comment_parts.append("")
                 comment_parts.append(summary)
                 comment_parts.append("")
-            
+
             # Include full content only if requested (for [update-docs])
             if include_full_content:
                 comment_parts.append("### 📄 Proposed Changes")
@@ -972,11 +1193,14 @@ def post_review_comment(files_with_content, pr_number, commit_info=None, include
         comment_parts.append("---")
         comment_parts.append("")
         comment_parts.append("💡 **Next Steps**:")
-        comment_parts.append("- Review the suggestions above")
+        comment_parts.append("- **Uncheck** any files above that you don't want updated")
         if not include_full_content:
-            comment_parts.append("- To see full proposed changes and create a PR, comment with the update-docs command in brackets")
+            comment_parts.append("- When ready, comment `[\u200bupdate-docs]` to generate a PR with only the checked files")
         else:
-            comment_parts.append("- To create a PR with these changes, comment with the update-docs command in brackets")
+            comment_parts.append("- When ready, comment `[\u200bupdate-docs]` to create a PR with only the checked files")
+        comment_parts.append("- You can add instructions in your `[\u200bupdate-docs]` comment:")
+        comment_parts.append("  - **Global** (first line): `[\u200bupdate-docs] keep changes minimal, don't add new sections`")
+        comment_parts.append("  - **Per-file** (next lines): `config-ref.rst: only update the CLI usage example`")
         comment_parts.append("")
         comment_parts.append("*Powered by Gemini AI* ✨")
         
@@ -1143,18 +1367,18 @@ def main():
 
     # Detect which command was used: [review-docs] or [update-docs]
     comment_body = os.environ.get("COMMENT_BODY", "")
-    
+
     # Determine mode based on comment
     review_mode = "[review-docs]" in comment_body.lower()
     update_mode = "[update-docs]" in comment_body.lower()
-    
+
     if not review_mode and not update_mode:
         # Fallback to update mode if no command detected (backward compatibility)
         update_mode = True
-    
+
     # Determine if we should use indexes
     use_index = args.use_index and not args.no_index
-    
+
     print(f"Mode: {'Review' if review_mode and not update_mode else 'Update' if update_mode and not review_mode else 'Review + Update'}")
     print(f"Optimization: {'Index-based' if use_index else 'Full scan'}")
 
@@ -1162,62 +1386,98 @@ def main():
     if not diff:
         print("No changes detected.")
         return
-    
+
     # Get commit info before switching to docs repo
     commit_info = get_commit_info()
     if commit_info:
         print(f"Source repository: {commit_info['repo_url']}")
         print(f"Latest commit: {commit_info['short_hash']}")
-    
+
     # Get PR number for posting comments
     pr_number = os.environ.get("PR_NUMBER", "unknown")
-    
+
+    # === INTERACTIVE REVIEW: check for previous review when [update-docs] ===
+    previous_review = None
+    user_instructions = ""
+    file_instructions = {}
+    if update_mode and not review_mode:
+        # Parse global and per-file instructions from the [update-docs] comment
+        user_instructions, file_instructions = parse_update_instructions(comment_body)
+
+        print("Checking for previous interactive review comment...")
+        previous_review = parse_previous_review(pr_number)
+
+        if previous_review["review_found"]:
+            # Warn if the codebase has changed since the review
+            if previous_review["review_commit"] and commit_info:
+                if previous_review["review_commit"] != commit_info["short_hash"]:
+                    print(
+                        f"Warning: Review was based on commit {previous_review['review_commit']}, "
+                        f"current HEAD is {commit_info['short_hash']}. "
+                        "Consider re-running [review-docs] for fresh analysis."
+                    )
+
+            if not previous_review["accepted_files"]:
+                print("All files were unchecked in the review. No updates to apply.")
+                post_review_comment([], pr_number, commit_info, include_full_content=False)
+                return
+
     if not setup_docs_environment():
         print("Failed to set up docs environment")
         return
-    
+
     # === FILE DISCOVERY ===
-    if use_index:
-        # Optimized path: use semantic indexes
-        print("Using optimized index-based file discovery...")
-        relevant_files = find_relevant_files_optimized(diff)
-        
-        if relevant_files is None:
-            # Fallback to full scan was requested
-            print("Index-based discovery requested full scan, falling back...")
-            use_index = False
-    
-    if not use_index:
-        # Original path: full scan
-        file_previews = get_file_content_or_summaries()
-        print(f"DEBUG: Collected {len(file_previews)} file previews")
+    # If a previous review exists with accepted files, skip discovery entirely
+    if previous_review and previous_review["review_found"] and previous_review["accepted_files"]:
+        relevant_files = previous_review["accepted_files"]
+        print(f"Using {len(relevant_files)} file(s) accepted from previous review: {relevant_files}")
+        if previous_review["rejected_files"]:
+            print(f"Skipping {len(previous_review['rejected_files'])} rejected file(s): {previous_review['rejected_files']}")
+    else:
+        # Normal file discovery path
+        if use_index:
+            # Optimized path: use semantic indexes
+            print("Using optimized index-based file discovery...")
+            relevant_files = find_relevant_files_optimized(diff)
 
-        if not file_previews:
-            print("No documentation files found to process.")
-            return
+            if relevant_files is None:
+                # Fallback to full scan was requested
+                print("Index-based discovery requested full scan, falling back...")
+                use_index = False
 
-        print("Asking Gemini for relevant files...")
-        relevant_files = ask_gemini_for_relevant_files(diff, file_previews)
-    
+        if not use_index:
+            # Original path: full scan
+            file_previews = get_file_content_or_summaries()
+            print(f"DEBUG: Collected {len(file_previews)} file previews")
+
+            if not file_previews:
+                print("No documentation files found to process.")
+                return
+
+            print("Asking Gemini for relevant files...")
+            relevant_files = ask_gemini_for_relevant_files(diff, file_previews)
+
     if not relevant_files:
         print("Gemini did not suggest any files.")
         # Still post a comment saying no updates needed
         if review_mode or update_mode:
-            # No content to show, so include_full_content doesn't matter
             post_review_comment([], pr_number, commit_info, include_full_content=False)
         return
 
-    print("Files selected by Gemini:", relevant_files)
+    print("Files selected for processing:", relevant_files)
 
     # === GENERATE UPDATES ===
     files_with_content = []
     modified_files = []
-    
+
     if args.parallel_updates and len(relevant_files) > 1:
         # Parallel update generation
         print(f"Generating updates in parallel (max {args.max_workers} workers)...")
-        files_with_content = generate_updates_parallel(diff, relevant_files, max_workers=args.max_workers)
-        
+        files_with_content = generate_updates_parallel(
+            diff, relevant_files, max_workers=args.max_workers,
+            user_instructions=user_instructions, file_instructions=file_instructions
+        )
+
         # Write files if in update mode
         for file_path, current, updated in files_with_content:
             if update_mode and not args.dry_run:
@@ -1234,7 +1494,10 @@ def main():
                 continue
 
             print(f"Checking if {file_path} needs an update...")
-            updated = ask_gemini_for_updated_content(diff, file_path, current)
+            updated = ask_gemini_for_updated_content(
+                diff, file_path, current,
+                user_instructions=user_instructions, file_instructions=file_instructions
+            )
 
             if updated.strip() == "NO_UPDATE_NEEDED":
                 print(f"No update needed for {file_path}")
@@ -1259,7 +1522,7 @@ def main():
             # [review-docs]: only summary, [update-docs]: summary + full content
             include_full = update_mode  # Show full content if [update-docs] is present
             post_review_comment(files_with_content, pr_number, commit_info, include_full_content=include_full)
-        
+
         # Create PR only if [update-docs] was used
         if update_mode and modified_files:
             if args.dry_run:

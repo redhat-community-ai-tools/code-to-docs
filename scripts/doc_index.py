@@ -12,6 +12,7 @@ The index system works in two phases:
 """
 
 import os
+import re
 import json
 import hashlib
 import subprocess
@@ -853,7 +854,12 @@ def _process_area_batch(client, prompt, batch_num, total_batches, batch_folders)
             if result_text.endswith("```"):
                 result_text = result_text.rsplit("\n", 1)[0]
             result_text = result_text.strip()
-            
+
+            # Extract JSON array from response - model sometimes wraps it in extra text
+            json_match = re.search(r'\[.*?\]', result_text, re.DOTALL)
+            if json_match:
+                result_text = json_match.group(0)
+
             relevant_areas = json.loads(result_text)
             
             # Filter to only include folders from this batch

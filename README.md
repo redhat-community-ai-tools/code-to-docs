@@ -8,15 +8,29 @@ AI-powered GitHub Action that automatically analyzes code changes and updates do
 ## Usage
 
 Comment on any Pull Request:
-- **`[review-docs]`** - Posts a comment with a summary of which doc files need updates (no full content, no PR created)
-- **`[update-docs]`** - Posts a comment with the full proposed changes AND creates a PR in docs repo
+- **`[review-docs]`** - Analyzes code changes, identifies relevant doc files, and posts a review comment with checkboxes to accept or reject each suggestion
+- **`[update-docs]`** - Creates a docs PR with only the accepted files from a previous review (or runs the full pipeline if no review exists)
+
+### Recommended Workflow
+
+1. Comment `[review-docs]` to see which doc files the AI identified as needing updates
+2. Uncheck any files you don't want updated
+3. Comment `[update-docs]` to create a PR with only the checked files
+
+You can guide how the AI generates doc updates by adding instructions in your `[update-docs]` comment — global on the first line, per-file on subsequent lines:
+
+```
+[update-docs] keep changes minimal
+config-ref.rst: only update the CLI usage example
+```
 
 ## How It Works
 
 1. **Triggered by PR Comments** - When someone comments `[review-docs]` or `[update-docs]` on a Pull Request
 2. **Analyzes Code Changes** - Examines git diffs from your PRs using AI
 3. **Smart File Selection** - Identifies relevant documentation files automatically
-4. **Content Generation** - Generates updated documentation content in proper AsciiDoc/Markdown format
+4. **Interactive Review** - Presents suggestions with checkboxes for user curation
+5. **Content Generation** - Generates updated documentation in AsciiDoc, Markdown, or reStructuredText
 
 ## Setup
 
