@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Code-to-Docs Interactive Demo</title>
+    <style>
+        :root {
+            --gh-bg: #0d1117;
+            --gh-bg-secondary: #161b22;
+            --gh-bg-tertiary: #21262d;
+            --gh-border: #30363d;
+            --gh-text: #e6edf3;
+            --gh-text-secondary: #8b949e;
+            --gh-blue: #58a6ff;
+            --gh-green: #3fb950;
+            --gh-green-bg: #238636;
+            --gh-red: #f85149;
+            --gh-diff-green-bg: #0d2818;
+            --gh-diff-red-bg: #2d1214;
+            --gh-diff-green-line: #1a4721;
+            --gh-diff-red-line: #3d1517;
+            --gh-header: #010409;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+            background: var(--gh-bg);
+            color: var(--gh-text);
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        .demo-banner {
+            position: fixed; top: 0; left: 0; right: 0; height: 36px;
+            background: linear-gradient(90deg, #238636, #1f6feb);
+            display: flex; align-items: center; justify-content: center; z-index: 3000; gap: 12px;
+        }
+        .demo-badge {
+            background: rgba(255,255,255,0.2); color: white; padding: 2px 10px;
+            border-radius: 12px; font-size: 11px; font-weight: 600; letter-spacing: 1px;
+        }
+        .demo-banner-text { color: white; font-size: 13px; font-weight: 500; }
+        .gh-header {
+            position: fixed; top: 36px; left: 0; right: 0; height: 62px;
+            background: var(--gh-header); border-bottom: 1px solid var(--gh-border);
+            display: flex; align-items: center; padding: 0 24px; z-index: 2500; gap: 16px;
+        }
+        .gh-logo { width: 32px; height: 32px; fill: white; }
+        .gh-header-search {
+            background: var(--gh-bg); border: 1px solid var(--gh-border); border-radius: 6px;
+            padding: 5px 12px; color: var(--gh-text-secondary); font-size: 14px; width: 280px;
+        }
+        .gh-header-nav { display: flex; gap: 16px; margin-left: auto; }
+        .gh-header-nav span { color: var(--gh-text); font-size: 14px; font-weight: 600; cursor: pointer; }
+        .gh-avatar-small { width: 20px; height: 20px; border-radius: 50%; background: linear-gradient(135deg, #f78166, #d29922); }
+        .demo-container { margin-top: 98px; height: calc(100vh - 98px); overflow-y: auto; }
+        .pr-page { max-width: 1100px; margin: 0 auto; padding: 24px 32px; }
+        .pr-title-section { margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--gh-border); }
+        .pr-title { font-size: 26px; font-weight: 400; color: var(--gh-text); margin-bottom: 8px; }
+        .pr-title .pr-number { color: var(--gh-text-secondary); font-weight: 300; }
+        .pr-status { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+        .pr-status-badge { display: inline-flex; align-items: center; gap: 4px; padding: 4px 12px; border-radius: 16px; font-size: 14px; font-weight: 500; }
+        .pr-status-badge.open { background: var(--gh-green-bg); color: white; }
+        .pr-meta { color: var(--gh-text-secondary); }
+        .pr-tabs { display: flex; border-bottom: 1px solid var(--gh-border); margin-bottom: 24px; }
+        .pr-tab {
+            padding: 10px 16px; color: var(--gh-text-secondary); font-size: 14px; cursor: pointer;
+            border-bottom: 2px solid transparent; display: flex; align-items: center; gap: 6px;
+        }
+        .pr-tab.active { color: var(--gh-text); border-bottom-color: #f78166; font-weight: 600; }
+        .pr-tab .tab-count { background: var(--gh-bg-tertiary); padding: 1px 8px; border-radius: 10px; font-size: 12px; }
+        .diff-file { border: 1px solid var(--gh-border); border-radius: 6px; margin-bottom: 16px; overflow: hidden; }
+        .diff-file-header {
+            background: var(--gh-bg-secondary); padding: 10px 16px; font-size: 13px;
+            font-family: 'SFMono-Regular', Consolas, monospace; border-bottom: 1px solid var(--gh-border);
+            display: flex; align-items: center; gap: 8px;
+        }
+        .diff-file-header .file-icon { color: var(--gh-text-secondary); }
+        .diff-table { width: 100%; font-family: 'SFMono-Regular', Consolas, monospace; font-size: 12px; border-collapse: collapse; }
+        .diff-table td { padding: 1px 10px; white-space: pre; line-height: 20px; vertical-align: top; }
+        .diff-line-num { width: 50px; color: var(--gh-text-secondary); text-align: right; user-select: none; opacity: 0.6; }
+        .diff-line-add { background: var(--gh-diff-green-bg); }
+        .diff-line-add .diff-line-content { background: var(--gh-diff-green-line); }
+        .diff-line-del { background: var(--gh-diff-red-bg); }
+        .diff-line-del .diff-line-content { background: var(--gh-diff-red-line); }
+        .diff-line-content { padding-left: 16px; }
+        .diff-hunk { background: rgba(56, 139, 253, 0.1); color: var(--gh-text-secondary); }
+        .comment { display: flex; gap: 16px; margin-bottom: 24px; animation: fadeInComment 0.4s ease; }
+        @keyframes fadeInComment { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .comment-avatar { width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0; }
+        .avatar-user { background: linear-gradient(135deg, #f78166, #d29922); }
+        .avatar-action { background: var(--gh-bg-tertiary); border: 1px solid var(--gh-border); display: flex; align-items: center; justify-content: center; }
+        .avatar-action svg { width: 20px; height: 20px; fill: var(--gh-text-secondary); }
+        .comment-body { flex: 1; border: 1px solid var(--gh-border); border-radius: 6px; overflow: hidden; }
+        .comment-header {
+            background: var(--gh-bg-secondary); padding: 10px 16px; font-size: 14px;
+            border-bottom: 1px solid var(--gh-border); display: flex; align-items: center; gap: 8px;
+        }
+        .comment-header strong { color: var(--gh-text); }
+        .comment-header .comment-time { color: var(--gh-text-secondary); }
+        .comment-content { padding: 16px; font-size: 14px; line-height: 1.6; }
+        .comment-content code { background: rgba(110, 118, 129, 0.2); padding: 2px 6px; border-radius: 4px; font-family: 'SFMono-Regular', Consolas, monospace; font-size: 13px; }
+        .comment-content h3 { margin: 12px 0 8px; font-size: 16px; }
+        .comment-content p { margin-bottom: 10px; }
+        .comment-content ul { margin: 8px 0; padding-left: 24px; }
+        .comment-content li { margin-bottom: 4px; }
+        .doc-checkbox { display: flex; align-items: flex-start; gap: 8px; margin: 10px 0; padding: 8px 10px; border-radius: 6px; }
+        .doc-checkbox:hover { background: var(--gh-bg-secondary); }
+        .doc-checkbox input[type="checkbox"] { margin-top: 3px; accent-color: var(--gh-green); width: 16px; height: 16px; pointer-events: none; }
+        .doc-checkbox label { flex: 1; }
+        .doc-checkbox .filename { color: var(--gh-blue); font-family: 'SFMono-Regular', Consolas, monospace; font-size: 13px; font-weight: 600; }
+        .doc-checkbox .file-description { color: var(--gh-text); font-size: 13px; display: block; margin-top: 4px; line-height: 1.5; }
+        .doc-checkbox .file-suggestion { color: var(--gh-text-secondary); font-size: 13px; display: block; margin-top: 4px; font-style: italic; line-height: 1.5; }
+        .comment-input-area { display: flex; gap: 16px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--gh-border); }
+        .comment-input-box { flex: 1; border: 1px solid var(--gh-border); border-radius: 6px; overflow: hidden; }
+        .comment-input-tabs { display: flex; background: var(--gh-bg-secondary); border-bottom: 1px solid var(--gh-border); padding: 0 12px; }
+        .comment-input-tab { padding: 8px 12px; font-size: 13px; color: var(--gh-text-secondary); }
+        .comment-input-tab.active { color: var(--gh-text); border-bottom: 2px solid #f78166; }
+        .comment-textarea {
+            width: 100%; min-height: 100px; background: var(--gh-bg); border: none; color: var(--gh-text);
+            padding: 12px 16px; font-size: 14px; font-family: 'SFMono-Regular', Consolas, monospace; resize: none; outline: none;
+        }
+        .comment-input-footer { display: flex; justify-content: flex-end; padding: 8px 12px; background: var(--gh-bg-secondary); border-top: 1px solid var(--gh-border); }
+        .btn-comment { background: var(--gh-green-bg); color: white; border: none; padding: 6px 16px; border-radius: 6px; font-size: 14px; font-weight: 500; cursor: pointer; }
+        .btn-comment:hover { background: #2ea043; }
+        .btn-comment:disabled { opacity: 0.5; cursor: not-allowed; }
+        .collapsible-section { border: 1px solid var(--gh-border); border-radius: 6px; margin: 12px 0; overflow: hidden; }
+        .collapsible-header { background: var(--gh-bg-secondary); padding: 10px 16px; font-size: 14px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+        .collapsible-header:hover { background: var(--gh-bg-tertiary); }
+        .collapsible-body { padding: 16px; display: none; font-size: 13px; font-family: 'SFMono-Regular', Consolas, monospace; line-height: 1.6; white-space: pre-wrap; color: var(--gh-text-secondary); }
+        .collapsible-body.open { display: block; }
+        .timeline-line { display: flex; align-items: center; gap: 16px; margin: 16px 0; padding-left: 12px; }
+        .timeline-dot { width: 8px; height: 8px; background: var(--gh-border); border-radius: 50%; margin-left: 16px; }
+        .timeline-text { color: var(--gh-text-secondary); font-size: 13px; }
+        .timeline-text a { color: var(--gh-blue); text-decoration: none; }
+        .typing-indicator { display: flex; gap: 4px; align-items: center; padding: 16px; }
+        .typing-dot { width: 8px; height: 8px; background: var(--gh-text-secondary); border-radius: 50%; animation: typingBounce 1.4s ease-in-out infinite; }
+        .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes typingBounce { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-6px); } }
+        .success-banner { background: rgba(63, 185, 80, 0.1); border: 1px solid rgba(63, 185, 80, 0.3); border-radius: 6px; padding: 16px 20px; margin: 16px 0; display: flex; align-items: center; gap: 12px; font-size: 14px; }
+        .success-banner .success-icon { font-size: 20px; }
+        .highlight-flash { animation: flashHighlight 1.5s ease; }
+        @keyframes flashHighlight { 0% { background: rgba(88, 166, 255, 0.2); } 100% { background: transparent; } }
+        .unchecked-file { opacity: 0.5; }
+        .unchecked-file .filename { text-decoration: line-through; }
+        .unchecked-file .file-description { text-decoration: line-through; }
+        .unchecked-file .file-suggestion { text-decoration: line-through; }
+        .docs-pr-link {
+            display: inline-flex; align-items: center; gap: 6px; background: var(--gh-bg-secondary);
+            border: 1px solid var(--gh-border); border-radius: 6px; padding: 8px 16px;
+            color: var(--gh-blue); text-decoration: none; font-size: 14px; margin-top: 8px;
+        }
+        .docs-pr-link:hover { border-color: var(--gh-blue); }
+        .narration-box {
+            position: fixed; z-index: 2000; background: linear-gradient(135deg, #1e293b, #0f172a);
+            border: 2px solid #3b82f6; border-radius: 16px; padding: 24px 32px; max-width: 520px; width: 90%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); transition: all 0.4s ease;
+        }
+        .narration-box.position-center { top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important; }
+        .narration-box.position-bottom-right { top: auto !important; bottom: 30px !important; left: auto !important; right: 30px !important; transform: none !important; }
+        .narration-box.position-top-right { top: 120px !important; bottom: auto !important; left: auto !important; right: 30px !important; transform: none !important; }
+        .step-indicator { display: flex; gap: 6px; margin-bottom: 16px; }
+        .step-dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.2); transition: all 0.3s; }
+        .step-dot.active { background: #3b82f6; box-shadow: 0 0 8px rgba(59, 130, 246, 0.5); }
+        .step-dot.completed { background: #22c55e; }
+        #narrationTitle { font-size: 18px; font-weight: 700; color: white; margin-bottom: 10px; }
+        #narrationText { font-size: 14px; color: #94a3b8; line-height: 1.6; margin-bottom: 20px; }
+        #narrationText code { background: rgba(59, 130, 246, 0.2); padding: 2px 6px; border-radius: 4px; color: #93c5fd; font-family: 'SFMono-Regular', Consolas, monospace; font-size: 13px; }
+        .narration-buttons { display: flex; justify-content: space-between; gap: 12px; }
+        .narration-buttons button { padding: 8px 20px; border-radius: 8px; border: none; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+        .btn-back { background: rgba(255,255,255,0.1); color: #94a3b8; }
+        .btn-back:hover { background: rgba(255,255,255,0.15); }
+        .btn-back:disabled { opacity: 0.3; cursor: not-allowed; }
+        .btn-next { background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; }
+        .btn-next:hover { background: linear-gradient(135deg, #60a5fa, #3b82f6); }
+        .repo-breadcrumb { padding: 16px 32px; max-width: 1100px; margin: 0 auto; font-size: 20px; }
+        .repo-breadcrumb a { color: var(--gh-blue); text-decoration: none; }
+        .repo-breadcrumb .separator { color: var(--gh-text-secondary); margin: 0 4px; }
+
+        /* Setup view styles */
+        .setup-page { max-width: 1100px; margin: 0 auto; padding: 24px 32px; }
+        .setup-page h2 { font-size: 20px; font-weight: 600; margin-bottom: 16px; color: var(--gh-text); }
+        .setup-section { margin-bottom: 32px; }
+        .setup-section h3 { font-size: 16px; font-weight: 600; margin-bottom: 12px; color: var(--gh-text); display: flex; align-items: center; gap: 8px; }
+        .setup-step-badge { background: var(--gh-blue); color: white; width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; flex-shrink: 0; }
+        .setup-code-block {
+            background: var(--gh-bg-secondary); border: 1px solid var(--gh-border); border-radius: 6px; overflow: hidden;
+        }
+        .setup-code-header {
+            background: var(--gh-bg-tertiary); padding: 8px 16px; font-size: 13px; color: var(--gh-text-secondary);
+            border-bottom: 1px solid var(--gh-border); font-family: 'SFMono-Regular', Consolas, monospace;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .setup-code-content {
+            padding: 16px; font-family: 'SFMono-Regular', Consolas, monospace; font-size: 12px;
+            line-height: 1.7; color: var(--gh-text); overflow-x: auto; white-space: pre;
+        }
+        .yaml-key { color: #7ee787; }
+        .yaml-value { color: #a5d6ff; }
+        .yaml-comment { color: var(--gh-text-secondary); }
+        .secrets-table { width: 100%; border-collapse: collapse; border: 1px solid var(--gh-border); border-radius: 6px; overflow: hidden; }
+        .secrets-table th { background: var(--gh-bg-tertiary); padding: 10px 16px; text-align: left; font-size: 13px; color: var(--gh-text-secondary); border-bottom: 1px solid var(--gh-border); }
+        .secrets-table td { padding: 10px 16px; font-size: 13px; border-bottom: 1px solid var(--gh-border); }
+        .secrets-table tr:last-child td { border-bottom: none; }
+        .secrets-table .secret-name { color: var(--gh-blue); font-family: 'SFMono-Regular', Consolas, monospace; font-weight: 600; }
+        .secrets-table .secret-dots { color: var(--gh-text-secondary); letter-spacing: 2px; }
+        .secrets-table .secret-status { color: var(--gh-green); font-size: 12px; display: flex; align-items: center; gap: 4px; }
+        .setup-settings-header {
+            background: var(--gh-bg-secondary); border: 1px solid var(--gh-border); border-radius: 6px 6px 0 0;
+            padding: 16px 20px; display: flex; align-items: center; gap: 12px; border-bottom: none;
+        }
+        .setup-settings-header .settings-icon { color: var(--gh-text-secondary); }
+        .setup-settings-header .settings-path { color: var(--gh-text-secondary); font-size: 14px; }
+        .setup-settings-header .settings-path span { color: var(--gh-text); font-weight: 600; }
+    </style>
+</head>
+<body>
+    <div class="demo-banner">
+        <span class="demo-badge">INTERACTIVE DEMO</span>
+        <span class="demo-banner-text">Code-to-Docs: AI-Powered Documentation Updates</span>
+    </div>
+    <div class="gh-header">
+        <svg class="gh-logo" viewBox="0 0 16 16" fill="white"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        <div class="gh-header-search">Type / to search</div>
+        <div class="gh-header-nav">
+            <span>Pull requests</span>
+            <span>Issues</span>
+            <span>Marketplace</span>
+            <div class="gh-avatar-small"></div>
+        </div>
+    </div>
+
+    <div class="demo-container" id="demoContainer">
+        <!-- Setup View -->
+        <div class="view" id="setupView">
+            <div class="repo-breadcrumb">
+                <a>my-org</a><span class="separator">/</span><a>my-project</a><span class="separator">/</span><span style="color:var(--gh-text)">Settings</span>
+            </div>
+            <div class="setup-page">
+                <h2>Setting up Code-to-Docs</h2>
+
+                <div class="setup-section">
+                    <h3><span class="setup-step-badge">1</span> Add the workflow file</h3>
+                    <div class="setup-code-block">
+                        <div class="setup-code-header">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M2 1.75C2 .784 2.784 0 3.75 0h6.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0 1 13.25 16h-9.5A1.75 1.75 0 0 1 2 14.25Z"/></svg>
+                            .github/workflows/docs-assistant.yml
+                        </div>
+                        <div class="setup-code-content"><span class="yaml-key">name:</span> <span class="yaml-value">Documentation Assistant</span>
+
+<span class="yaml-key">on:</span>
+  <span class="yaml-key">issue_comment:</span>
+    <span class="yaml-key">types:</span> <span class="yaml-value">[created]</span>
+
+<span class="yaml-key">permissions:</span>
+  <span class="yaml-key">contents:</span> <span class="yaml-value">read</span>
+  <span class="yaml-key">issues:</span> <span class="yaml-value">write</span>
+  <span class="yaml-key">pull-requests:</span> <span class="yaml-value">write</span>
+
+<span class="yaml-key">jobs:</span>
+  <span class="yaml-key">docs-assistant:</span>
+    <span class="yaml-key">runs-on:</span> <span class="yaml-value">ubuntu-latest</span>
+    <span class="yaml-key">if:</span> <span class="yaml-value">|
+      github.event.issue.pull_request &&
+      (contains(github.event.comment.body, '[review-docs]') ||
+       contains(github.event.comment.body, '[update-docs]'))</span>
+    <span class="yaml-key">steps:</span>
+      - <span class="yaml-key">name:</span> <span class="yaml-value">Get PR information</span>
+        <span class="yaml-key">id:</span> <span class="yaml-value">pr_info</span>
+        <span class="yaml-key">if:</span> <span class="yaml-value">github.event.issue.pull_request</span>
+        <span class="yaml-key">env:</span>
+          <span class="yaml-key">GH_TOKEN:</span> <span class="yaml-value">${{ secrets.GH_PAT }}</span>
+        <span class="yaml-key">run:</span> <span class="yaml-value">|
+          PR_NUMBER=${{ github.event.issue.number }}
+          PR_DATA=$(gh api repos/${{ github.repository }}/pulls/$PR_NUMBER)
+          HEAD_REF=$(echo "$PR_DATA" | jq -r '.head.ref')
+          HEAD_REPO=$(echo "$PR_DATA" | jq -r '.head.repo.full_name')
+          BASE_REF=$(echo "$PR_DATA" | jq -r '.base.ref')
+          echo "head_ref=$HEAD_REF" >> $GITHUB_OUTPUT
+          echo "head_repo=$HEAD_REPO" >> $GITHUB_OUTPUT
+          echo "base_ref=$BASE_REF" >> $GITHUB_OUTPUT
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT</span>
+
+      - <span class="yaml-key">name:</span> <span class="yaml-value">Checkout PR Code</span>
+        <span class="yaml-key">uses:</span> <span class="yaml-value">actions/checkout@v4</span>
+        <span class="yaml-key">with:</span>
+          <span class="yaml-key">repository:</span> <span class="yaml-value">${{ steps.pr_info.outputs.head_repo || github.repository }}</span>
+          <span class="yaml-key">ref:</span> <span class="yaml-value">${{ steps.pr_info.outputs.head_ref || github.ref }}</span>
+          <span class="yaml-key">fetch-depth:</span> <span class="yaml-value">0</span>
+          <span class="yaml-key">token:</span> <span class="yaml-value">${{ secrets.GH_PAT }}</span>
+
+      - <span class="yaml-key">name:</span> <span class="yaml-value">Documentation Assistant</span>
+        <span class="yaml-key">uses:</span> <span class="yaml-value">redhat-community-ai-tools/code-to-docs@main</span>
+        <span class="yaml-key">with:</span>
+          <span class="yaml-key">gemini-api-key:</span> <span class="yaml-value">${{ secrets.GEMINI_API_KEY }}</span>
+          <span class="yaml-key">docs-repo-url:</span> <span class="yaml-value">${{ secrets.DOCS_REPO_URL }}</span>
+          <span class="yaml-key">github-token:</span> <span class="yaml-value">${{ secrets.GH_PAT }}</span>
+          <span class="yaml-key">pr-number:</span> <span class="yaml-value">${{ github.event.issue.number }}</span>
+          <span class="yaml-key">pr-base:</span> <span class="yaml-value">origin/${{ steps.pr_info.outputs.base_ref || 'main' }}</span>
+          <span class="yaml-key">pr-head-sha:</span> <span class="yaml-value">${{ steps.pr_info.outputs.head_ref }}</span>
+          <span class="yaml-key">docs-subfolder:</span> <span class="yaml-value">${{ secrets.DOCS_SUBFOLDER }}</span>
+          <span class="yaml-key">comment-body:</span> <span class="yaml-value">${{ github.event.comment.body }}</span>
+          <span class="yaml-key">docs-base-branch:</span> <span class="yaml-value">${{ secrets.DOCS_BASE_BRANCH || 'main' }}</span></div>
+                    </div>
+                </div>
+
+                <div class="setup-section">
+                    <h3><span class="setup-step-badge">2</span> Configure repository secrets</h3>
+                    <div class="setup-settings-header">
+                        <span class="settings-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8.2 8.2 0 0 1 .701.031C9.444.095 9.99.645 10.16 1.29l.288 1.107c.018.066.079.158.212.224.231.114.454.243.668.386.123.082.233.09.3.071l1.102-.303c.644-.176 1.392.021 1.82.63.27.385.506.792.704 1.218.315.675.111 1.422-.364 1.891l-.814.806c-.049.048-.098.147-.088.294a6.7 6.7 0 0 1 0 .772c-.01.147.04.246.088.294l.814.806c.475.469.679 1.216.364 1.891a7.2 7.2 0 0 1-.704 1.218c-.428.609-1.176.806-1.82.63l-1.103-.303c-.066-.019-.176-.011-.299.071a5.3 5.3 0 0 1-.668.386c-.133.066-.194.158-.212.224l-.288 1.107c-.17.645-.716 1.195-1.459 1.26a8.1 8.1 0 0 1-1.402 0c-.743-.065-1.289-.615-1.459-1.26l-.289-1.107c-.017-.066-.078-.158-.211-.224a5.3 5.3 0 0 1-.668-.386c-.123-.082-.233-.09-.3-.071l-1.102.303c-.644.176-1.392-.021-1.82-.63a7.1 7.1 0 0 1-.704-1.218c-.315-.675-.111-1.422.363-1.891l.815-.806c.049-.048.098-.147.088-.294a6.7 6.7 0 0 1 0-.772c.01-.147-.04-.246-.088-.294l-.815-.806C.635 6.045.431 5.298.746 4.623a7.1 7.1 0 0 1 .704-1.217c.428-.61 1.176-.807 1.82-.63l1.103.303c.066.018.176.01.299-.072.214-.143.437-.272.668-.386.133-.066.194-.158.212-.224L5.84 1.29c.17-.645.716-1.195 1.459-1.26A8.2 8.2 0 0 1 8 0Z"/></svg></span>
+                        <span class="settings-path">Settings &gt; Secrets and variables &gt; <span>Actions</span></span>
+                    </div>
+                    <table class="secrets-table">
+                        <thead>
+                            <tr><th>Name</th><th>Value</th><th>Description</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><span class="secret-name">GEMINI_API_KEY</span></td>
+                                <td><span class="secret-dots">&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;</span></td>
+                                <td>API key from Google AI Studio</td>
+                            </tr>
+                            <tr>
+                                <td><span class="secret-name">DOCS_REPO_URL</span></td>
+                                <td><span class="secret-dots">&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;</span></td>
+                                <td>Docs repository URL (e.g., https://github.com/org/docs)</td>
+                            </tr>
+                            <tr>
+                                <td><span class="secret-name">GH_PAT</span></td>
+                                <td><span class="secret-dots">&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;</span></td>
+                                <td>GitHub token with repo + pull_requests:write permissions</td>
+                            </tr>
+                            <tr>
+                                <td><span class="secret-name">DOCS_SUBFOLDER</span></td>
+                                <td style="color:var(--gh-text-secondary);font-style:italic;font-size:12px;">Optional</td>
+                                <td>Docs subfolder path if docs live in the same repo (e.g., docs)</td>
+                            </tr>
+                            <tr>
+                                <td><span class="secret-name">DOCS_BASE_BRANCH</span></td>
+                                <td style="color:var(--gh-text-secondary);font-style:italic;font-size:12px;">Optional</td>
+                                <td>Base branch for docs PRs (defaults to main)</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- PR View -->
+        <div class="view" id="prView">
+            <div class="repo-breadcrumb">
+                <a>my-org</a><span class="separator">/</span><a>my-project</a>
+            </div>
+            <div class="pr-page">
+                <div class="pr-title-section">
+                    <h1 class="pr-title">Add rate limiting to authentication endpoints <span class="pr-number">#342</span></h1>
+                    <div class="pr-status">
+                        <span class="pr-status-badge open">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354Z"/></svg>
+                            Open
+                        </span>
+                        <span class="pr-meta">
+                            <strong>alice</strong> wants to merge 3 commits into <code>main</code> from <code>add-rate-limiting</code>
+                        </span>
+                    </div>
+                </div>
+
+                <div class="pr-tabs">
+                    <div class="pr-tab active" id="tabConversation" onclick="switchTab('conversation')">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 1h8.5c.966 0 1.75.784 1.75 1.75v5.5A1.75 1.75 0 0 1 10.25 10H7.061l-2.574 2.573A1.458 1.458 0 0 1 2 11.543V10h-.25A1.75 1.75 0 0 1 0 8.25v-5.5C0 1.784.784 1 1.75 1Z"/></svg>
+                        Conversation <span class="tab-count" id="commentCount">2</span>
+                    </div>
+                    <div class="pr-tab" id="tabFiles">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M2 1.75C2 .784 2.784 0 3.75 0h6.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0 1 13.25 16h-9.5A1.75 1.75 0 0 1 2 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h9.5a.25.25 0 0 0 .25-.25V6h-2.75A1.75 1.75 0 0 1 9 4.25V1.5Zm6.75.062V4.25c0 .138.112.25.25.25h2.688l-.011-.013-2.914-2.914-.013-.011Z"/></svg>
+                        Files changed <span class="tab-count">3</span>
+                    </div>
+                </div>
+
+                <div id="conversationContent">
+                    <div class="comment">
+                        <div class="comment-avatar avatar-user"></div>
+                        <div class="comment-body">
+                            <div class="comment-header">
+                                <strong>alice</strong>
+                                <span class="comment-time">commented 2 hours ago</span>
+                            </div>
+                            <div class="comment-content">
+                                <p>This PR adds rate limiting to the <code>/auth/login</code> and <code>/auth/token</code> endpoints. Changes include:</p>
+                                <ul>
+                                    <li>New <code>RateLimiter</code> middleware with configurable limits per endpoint</li>
+                                    <li>Updated <code>auth_handler.py</code> to apply rate limiting on login and token refresh</li>
+                                    <li>New configuration options: <code>RATE_LIMIT_MAX_REQUESTS</code> and <code>RATE_LIMIT_WINDOW_SECONDS</code></li>
+                                    <li>Tests for rate limiting behavior and error responses</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Diff file 1 -->
+                    <div class="diff-file">
+                        <div class="diff-file-header">
+                            <span class="file-icon">&#9660;</span>
+                            src/middleware/rate_limiter.py
+                            <span style="margin-left: auto; color: var(--gh-green);">+94</span>
+                            <span style="color: var(--gh-red);">-0</span>
+                        </div>
+                        <table class="diff-table">
+                            <tr class="diff-hunk"><td class="diff-line-num"></td><td class="diff-line-num"></td><td class="diff-line-content">@@ -0,0 +1,34 @@</td></tr>
+                            <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">1</td><td class="diff-line-content">+class RateLimiter:</td></tr>
+                            <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">2</td><td class="diff-line-content">+    """Sliding window rate limiter middleware."""</td></tr>
+                            <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">3</td><td class="diff-line-content">+</td></tr>
+                            <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">4</td><td class="diff-line-content">+    def __init__(self, max_requests, window_seconds):</td></tr>
+                            <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">5</td><td class="diff-line-content">+        self.max_requests = max_requests</td></tr>
+                            <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">6</td><td class="diff-line-content">+        self.window_seconds = window_seconds</td></tr>
+                        </table>
+                    </div>
+
+                    <!-- Diff file 2 -->
+                    <div class="diff-file">
+                        <div class="diff-file-header">
+                            <span class="file-icon">&#9660;</span>
+                            src/handlers/auth_handler.py
+                            <span style="margin-left: auto; color: var(--gh-green);">+23</span>
+                            <span style="color: var(--gh-red);">-4</span>
+                        </div>
+                        <table class="diff-table">
+                            <tr class="diff-hunk"><td class="diff-line-num"></td><td class="diff-line-num"></td><td class="diff-line-content">@@ -12,8 +12,18 @@ class AuthHandler:</td></tr>
+                            <tr><td class="diff-line-num">12</td><td class="diff-line-num">12</td><td class="diff-line-content">  def handle_login(self, request):</td></tr>
+                            <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">13</td><td class="diff-line-content">+     self.rate_limiter.check(request)</td></tr>
+                            <tr><td class="diff-line-num">13</td><td class="diff-line-num">14</td><td class="diff-line-content">      credentials = request.get_credentials()</td></tr>
+                            <tr class="diff-line-del"><td class="diff-line-num">14</td><td class="diff-line-num"></td><td class="diff-line-content">-     return self.authenticate(credentials)</td></tr>
+                            <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">15</td><td class="diff-line-content">+     return self.authenticate(credentials, rate_limited=True)</td></tr>
+                        </table>
+                    </div>
+
+                    <!-- Diff file 3 -->
+                    <div class="diff-file">
+                        <div class="diff-file-header">
+                            <span class="file-icon">&#9660;</span>
+                            config/settings.py
+                            <span style="margin-left: auto; color: var(--gh-green);">+12</span>
+                            <span style="color: var(--gh-red);">-0</span>
+                        </div>
+                        <table class="diff-table">
+                            <tr class="diff-hunk"><td class="diff-line-num"></td><td class="diff-line-num"></td><td class="diff-line-content">@@ -28,6 +28,14 @@ class Settings:</td></tr>
+                            <tr><td class="diff-line-num">28</td><td class="diff-line-num">28</td><td class="diff-line-content">  SESSION_TIMEOUT = 3600</td></tr>
+                            <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">29</td><td class="diff-line-content">+</td></tr>
+                            <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">30</td><td class="diff-line-content">+  # Rate limiting</td></tr>
+                            <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">31</td><td class="diff-line-content">+  RATE_LIMIT_MAX_REQUESTS = 100</td></tr>
+                            <tr class="diff-line-add"><td class="diff-line-num"></td><td class="diff-line-num">32</td><td class="diff-line-content">+  RATE_LIMIT_WINDOW_SECONDS = 60</td></tr>
+                        </table>
+                    </div>
+
+                    <div id="commentsArea"></div>
+
+                    <div class="comment-input-area" id="commentInputArea">
+                        <div class="comment-avatar avatar-user" style="width:40px;height:40px;border-radius:50%;flex-shrink:0;"></div>
+                        <div class="comment-input-box">
+                            <div class="comment-input-tabs">
+                                <span class="comment-input-tab active">Write</span>
+                                <span class="comment-input-tab">Preview</span>
+                            </div>
+                            <textarea class="comment-textarea" id="commentTextarea" placeholder="Leave a comment"></textarea>
+                            <div class="comment-input-footer">
+                                <button class="btn-comment" id="btnComment" disabled>Comment</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="filesContent" style="display:none;">
+                    <div class="diff-file"><div class="diff-file-header"><span class="file-icon">&#9660;</span> src/middleware/rate_limiter.py <span style="margin-left:auto;color:var(--gh-green);">+94</span> <span style="color:var(--gh-red);">-0</span></div></div>
+                    <div class="diff-file"><div class="diff-file-header"><span class="file-icon">&#9660;</span> src/handlers/auth_handler.py <span style="margin-left:auto;color:var(--gh-green);">+23</span> <span style="color:var(--gh-red);">-4</span></div></div>
+                    <div class="diff-file"><div class="diff-file-header"><span class="file-icon">&#9660;</span> config/settings.py <span style="margin-left:auto;color:var(--gh-green);">+12</span> <span style="color:var(--gh-red);">-0</span></div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="narration-box position-center" id="narrationBox">
+        <div class="step-indicator" id="stepIndicator"></div>
+        <h4 id="narrationTitle"></h4>
+        <p id="narrationText"></p>
+        <div class="narration-buttons">
+            <button class="btn-back" id="btnBack" onclick="prevStep()">&#8592; Back</button>
+            <button class="btn-next" id="btnNext" onclick="nextStep()">Start Demo &#8594;</button>
+        </div>
+    </div>
+
+    <script>
+        let demoStep = 0;
+        let animationTimer = null;
+
+        const actionAvatarSvg = '<svg viewBox="0 0 16 16" fill="#8b949e" width="20" height="20"><path d="M8 0a8.2 8.2 0 0 1 .701.031C9.444.095 9.99.645 10.16 1.29l.288 1.107c.018.066.079.158.212.224.231.114.454.243.668.386.123.082.233.09.3.071l1.102-.303c.644-.176 1.392.021 1.82.63.27.385.506.792.704 1.218.315.675.111 1.422-.364 1.891l-.814.806c-.049.048-.098.147-.088.294a6.7 6.7 0 0 1 0 .772c-.01.147.04.246.088.294l.814.806c.475.469.679 1.216.364 1.891a7.2 7.2 0 0 1-.704 1.218c-.428.609-1.176.806-1.82.63l-1.103-.303c-.066-.019-.176-.011-.299.071a5.3 5.3 0 0 1-.668.386c-.133.066-.194.158-.212.224l-.288 1.107c-.17.645-.716 1.195-1.459 1.26a8.1 8.1 0 0 1-1.402 0c-.743-.065-1.289-.615-1.459-1.26l-.289-1.107c-.017-.066-.078-.158-.211-.224a5.3 5.3 0 0 1-.668-.386c-.123-.082-.233-.09-.3-.071l-1.102.303c-.644.176-1.392-.021-1.82-.63a7.1 7.1 0 0 1-.704-1.218c-.315-.675-.111-1.422.363-1.891l.815-.806c.049-.048.098-.147.088-.294a6.7 6.7 0 0 1 0-.772c.01-.147-.04-.246-.088-.294l-.815-.806C.635 6.045.431 5.298.746 4.623a7.1 7.1 0 0 1 .704-1.217c.428-.61 1.176-.807 1.82-.63l1.103.303c.066.018.176.01.299-.072.214-.143.437-.272.668-.386.133-.066.194-.158.212-.224L5.84 1.29c.17-.645.716-1.195 1.459-1.26A8.2 8.2 0 0 1 8 0M5.919 10.5a3.5 3.5 0 1 0 4.162-4.162 3.5 3.5 0 0 0-4.162 4.163Z"/></svg>';
+
+        const demoSteps = [
+            {
+                title: "Code-to-Docs: AI Documentation Updates",
+                text: "See how Code-to-Docs automatically identifies and updates documentation when code changes \u2014 right from your pull request workflow.",
+                buttonText: "Start Demo &#8594;",
+                position: "center",
+                action: null
+            },
+            {
+                title: "Step 1: Set Up the GitHub Action",
+                text: "Setting up Code-to-Docs takes two steps: add a workflow file to your repository and configure three secrets. That's it \u2014 the action is ready to use.",
+                buttonText: "Continue &#8594;",
+                position: "bottom-right",
+                action: "showSetup"
+            },
+            {
+                title: "Step 2: A Developer Opens a Pull Request",
+                text: "A contributor has opened a PR that adds rate limiting to the authentication endpoints. The PR modifies several source files \u2014 but what about the documentation?",
+                buttonText: "Continue &#8594;",
+                position: "top-right",
+                action: "showPR"
+            },
+            {
+                title: "Step 3: Comment [review-docs]",
+                text: "Someone types <code>[review-docs]</code> as a PR comment. This triggers the Code-to-Docs GitHub Action, which analyzes the code diff against the project's documentation, uses its semantic index to find relevant files, and identifies which ones need updating and what changes are needed.",
+                buttonText: "Continue &#8594;",
+                position: "bottom-right",
+                action: "runReviewSequence"
+            },
+            {
+                title: "Step 4: Curate the Suggestions",
+                text: "The reviewer unchecks <code>docs/deployment.md</code> \u2014 it mentions authentication but doesn't need updating for this change. The checked files will be updated in the next step.",
+                buttonText: "Continue &#8594;",
+                position: "top-right",
+                action: "curateFiles"
+            },
+            {
+                title: "Step 5: Comment [update-docs] with Instructions",
+                text: "The reviewer comments <code>[update-docs]</code> with instructions \u2014 global on the first line, per-file on the lines that follow. The action generates updates only for the checked files and creates a PR in the docs repository.",
+                buttonText: "Continue &#8594;",
+                position: "bottom-right",
+                action: "runUpdateSequence"
+            },
+            {
+                title: "Ready to Try Code-to-Docs?",
+                text: "Set up the GitHub Action in your repository and comment <code>[review-docs]</code> on your next pull request. Your documentation will thank you.",
+                buttonText: "&#8634; Restart Demo",
+                position: "center",
+                action: "showCTA"
+            }
+        ];
+
+        function buildStepIndicator() {
+            const container = document.getElementById('stepIndicator');
+            container.innerHTML = '';
+            for (let i = 0; i < demoSteps.length; i++) {
+                const dot = document.createElement('div');
+                dot.className = 'step-dot';
+                if (i < demoStep) dot.classList.add('completed');
+                if (i === demoStep) dot.classList.add('active');
+                container.appendChild(dot);
+            }
+        }
+
+        function updateNarration() {
+            const step = demoSteps[demoStep];
+            document.getElementById('narrationTitle').textContent = step.title;
+            document.getElementById('narrationText').innerHTML = step.text;
+            document.getElementById('btnNext').innerHTML = step.buttonText;
+            document.getElementById('btnBack').disabled = demoStep === 0;
+            const box = document.getElementById('narrationBox');
+            box.classList.remove('position-center', 'position-bottom-right', 'position-top-right');
+            box.classList.add('position-' + step.position.replace(' ', '-'));
+            buildStepIndicator();
+        }
+
+        function nextStep() {
+            if (demoStep === demoSteps.length - 1) { resetDemo(); return; }
+            demoStep++;
+            updateNarration();
+            const action = demoSteps[demoStep].action;
+            if (action && typeof window[action] === 'function') window[action]();
+        }
+
+        function prevStep() {
+            if (demoStep <= 0) return;
+            if (animationTimer) { clearTimeout(animationTimer); animationTimer = null; }
+            demoStep--;
+            updateNarration();
+            resetView();
+            for (let i = 1; i <= demoStep; i++) {
+                const action = demoSteps[i].action;
+                if (action && typeof window[action] === 'function') window[action](true);
+            }
+        }
+
+        function resetDemo() { demoStep = 0; resetView(); updateNarration(); }
+
+        function resetView() {
+            document.getElementById('commentsArea').innerHTML = '';
+            document.getElementById('commentTextarea').value = '';
+            document.getElementById('btnComment').disabled = true;
+            switchTab('conversation');
+            document.getElementById('commentCount').textContent = '2';
+            document.getElementById('demoContainer').scrollTop = 0;
+            hideAllViews();
+        }
+
+        function hideAllViews() {
+            document.getElementById('setupView').style.display = 'none';
+            document.getElementById('prView').style.display = 'none';
+        }
+
+        function switchTab(tab) {
+            const convTab = document.getElementById('tabConversation');
+            const filesTab = document.getElementById('tabFiles');
+            document.getElementById('conversationContent').style.display = tab === 'conversation' ? 'block' : 'none';
+            document.getElementById('filesContent').style.display = tab === 'conversation' ? 'none' : 'block';
+            convTab.classList.toggle('active', tab === 'conversation');
+            filesTab.classList.toggle('active', tab !== 'conversation');
+        }
+
+        function scrollToBottom() {
+            setTimeout(() => {
+                const c = document.getElementById('demoContainer');
+                c.scrollTo({ top: c.scrollHeight, behavior: 'smooth' });
+            }, 100);
+        }
+
+        function incrementCommentCount() {
+            const el = document.getElementById('commentCount');
+            el.textContent = parseInt(el.textContent) + 1;
+        }
+
+        function addUserComment(text, instant) {
+            const area = document.getElementById('commentsArea');
+            const escapedText = text.replace(/"/g, '&quot;');
+            if (area.querySelector(`[data-comment-text="${CSS.escape(text)}"]`)) return;
+            const displayText = text.includes('\n')
+                ? text.split('\n').map(l => `<code>${l}</code>`).join('<br>')
+                : `<code>${text}</code>`;
+            area.insertAdjacentHTML('beforeend', `
+                <div class="comment" data-comment-text="${escapedText}">
+                    <div class="comment-avatar avatar-user"></div>
+                    <div class="comment-body">
+                        <div class="comment-header"><strong>reviewer</strong> <span class="comment-time">commented just now</span></div>
+                        <div class="comment-content"><p>${displayText}</p></div>
+                    </div>
+                </div>`);
+            incrementCommentCount();
+            scrollToBottom();
+        }
+
+        function addActionComment(id, content) {
+            const area = document.getElementById('commentsArea');
+            if (area.querySelector('.' + id)) return;
+            area.insertAdjacentHTML('beforeend', `
+                <div class="comment ${id}">
+                    <div class="comment-avatar avatar-action">${actionAvatarSvg}</div>
+                    <div class="comment-body">
+                        <div class="comment-header"><strong>github-actions</strong> <span class="comment-time">commented just now</span></div>
+                        <div class="comment-content">${content}</div>
+                    </div>
+                </div>`);
+            incrementCommentCount();
+            scrollToBottom();
+        }
+
+        // --- Action functions ---
+
+        function showSetup(instant) {
+            hideAllViews();
+            document.getElementById('setupView').style.display = 'block';
+            document.getElementById('demoContainer').scrollTop = 0;
+        }
+
+        function showPR(instant) {
+            hideAllViews();
+            document.getElementById('prView').style.display = 'block';
+            switchTab('conversation');
+            document.getElementById('demoContainer').scrollTop = 0;
+        }
+
+        // Step 2: type [review-docs], show analyzing, then show review comment — all in one click
+        function runReviewSequence(instant) {
+            if (instant) {
+                addUserComment('[review-docs]', true);
+                showReviewComment();
+                return;
+            }
+            const textarea = document.getElementById('commentTextarea');
+            const btn = document.getElementById('btnComment');
+            const text = '[review-docs]';
+            textarea.value = ''; textarea.focus();
+            let i = 0;
+            const typing = setInterval(() => {
+                textarea.value += text[i]; i++;
+                if (i >= text.length) {
+                    clearInterval(typing);
+                    btn.disabled = false;
+                    // Post comment
+                    animationTimer = setTimeout(() => {
+                        addUserComment(text);
+                        textarea.value = ''; btn.disabled = true;
+                        // Show analyzing timeline
+                        const area = document.getElementById('commentsArea');
+                        area.insertAdjacentHTML('beforeend', `
+                            <div class="timeline-line analyzing-comment">
+                                <div class="timeline-dot"></div>
+                                <span class="timeline-text"><strong>Documentation Assistant</strong> (GitHub Action) started analyzing changes...</span>
+                            </div>
+                            <div class="comment" id="typingComment">
+                                <div class="comment-avatar avatar-action">${actionAvatarSvg}</div>
+                                <div class="comment-body">
+                                    <div class="comment-header"><strong>github-actions</strong> <span class="comment-time">analyzing changes...</span></div>
+                                    <div class="comment-content"><div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>
+                                </div>
+                            </div>`);
+                        scrollToBottom();
+                        // Show review comment after delay
+                        animationTimer = setTimeout(() => {
+                            const t = document.getElementById('typingComment');
+                            if (t) t.remove();
+                            showReviewComment();
+                        }, 2000);
+                    }, 500);
+                }
+            }, 80);
+        }
+
+        function showReviewComment() {
+            addActionComment('review-comment', `
+                <h3>Documentation Review</h3>
+                <p>I analyzed your code changes and found <strong>3 documentation files</strong> that may need updating:</p>
+                <div class="doc-checkbox" id="check1">
+                    <input type="checkbox" id="file1" checked>
+                    <label for="file1">
+                        <span class="filename">docs/api/authentication.md</span>
+                        <span class="file-description">This file documents the authentication API endpoints including <code>/auth/login</code> and <code>/auth/token</code>, covering request formats, response codes, and usage examples.</span>
+                        <span class="file-suggestion">Suggested update: Add documentation for the new rate limiting behavior on these endpoints, including the 429 response code and <code>Retry-After</code> header.</span>
+                    </label>
+                </div>
+                <div class="doc-checkbox" id="check2">
+                    <input type="checkbox" id="file2" checked>
+                    <label for="file2">
+                        <span class="filename">docs/configuration.md</span>
+                        <span class="file-description">This file is the configuration reference for the project. It lists all environment variables and configuration options with their defaults and descriptions.</span>
+                        <span class="file-suggestion">Suggested update: Add the new <code>RATE_LIMIT_MAX_REQUESTS</code> and <code>RATE_LIMIT_WINDOW_SECONDS</code> configuration options to the table.</span>
+                    </label>
+                </div>
+                <div class="doc-checkbox" id="check3">
+                    <input type="checkbox" id="file3" checked>
+                    <label for="file3">
+                        <span class="filename">docs/deployment.md</span>
+                        <span class="file-description">This file covers deploying the application in production, including proxy settings, TLS configuration, and authentication setup for different environments.</span>
+                        <span class="file-suggestion">Suggested update: The authentication setup section briefly mentions endpoint behavior, but the change is minor and may not require an update.</span>
+                    </label>
+                </div>
+                <div class="collapsible-section">
+                    <div class="collapsible-header" onclick="this.nextElementSibling.classList.toggle('open')">&#9654; Proposed changes preview</div>
+                    <div class="collapsible-body"><strong>docs/api/authentication.md</strong>
+Add a "Rate Limiting" section under each endpoint
+documenting the sliding window rate limit behavior.
+Include the 429 Too Many Requests response, the
+Retry-After header, and example error response body.
+
+<strong>docs/configuration.md</strong>
+Add two rows to the configuration table:
+  RATE_LIMIT_MAX_REQUESTS (default: 100)
+  RATE_LIMIT_WINDOW_SECONDS (default: 60)
+
+<strong>docs/deployment.md</strong>
+The authentication setup section references endpoint
+behavior but does not specifically describe rate limits.
+Changes may not be necessary.</div>
+                </div>
+                <p style="margin-top:12px;color:var(--gh-text-secondary);font-size:13px;">&#9989; Uncheck any files you don't want updated, then comment <code>[update-docs]</code> to create a docs PR.</p>`);
+        }
+
+        function curateFiles(instant) {
+            const check3 = document.getElementById('check3');
+            const file3 = document.getElementById('file3');
+            if (!instant) {
+                setTimeout(() => {
+                    file3.checked = false;
+                    check3.classList.add('unchecked-file', 'highlight-flash');
+                }, 400);
+            } else {
+                file3.checked = false;
+                check3.classList.add('unchecked-file');
+            }
+            scrollToBottom();
+        }
+
+        // Step 4: type [update-docs], then show docs PR — all in one click
+        function runUpdateSequence(instant) {
+            const text = '[update-docs] keep changes minimal\nconfiguration.md: only add the new config options to the table';
+            if (instant) {
+                addUserComment(text, true);
+                showDocsPR();
+                return;
+            }
+            const textarea = document.getElementById('commentTextarea');
+            const btn = document.getElementById('btnComment');
+            textarea.value = ''; textarea.focus();
+            let i = 0;
+            const typing = setInterval(() => {
+                textarea.value += text[i]; i++;
+                if (i >= text.length) {
+                    clearInterval(typing);
+                    btn.disabled = false;
+                    animationTimer = setTimeout(() => {
+                        addUserComment(text);
+                        textarea.value = ''; btn.disabled = true;
+                        // Show timeline + docs PR after short delay
+                        animationTimer = setTimeout(() => {
+                            showDocsPR();
+                        }, 1200);
+                    }, 500);
+                }
+            }, 40);
+        }
+
+        function showDocsPR() {
+            const area = document.getElementById('commentsArea');
+            if (area.querySelector('.docs-pr-comment')) return;
+            area.insertAdjacentHTML('beforeend', `
+                <div class="timeline-line">
+                    <div class="timeline-dot"></div>
+                    <span class="timeline-text"><strong>Documentation Assistant</strong> (GitHub Action) created a pull request in <a>my-org/my-project-docs</a></span>
+                </div>`);
+            addActionComment('docs-pr-comment', `
+                <div class="success-banner"><span class="success-icon">&#10003;</span><span>Documentation PR created successfully!</span></div>
+                <p>Updated <strong>2 documentation files</strong> based on your review:</p>
+                <ul>
+                    <li><code>docs/api/authentication.md</code> &#8212; Added rate limiting section with 429 response documentation</li>
+                    <li><code>docs/configuration.md</code> &#8212; Added RATE_LIMIT_MAX_REQUESTS and RATE_LIMIT_WINDOW_SECONDS to configuration table</li>
+                </ul>
+                <a class="docs-pr-link" href="#">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354Z"/></svg>
+                    my-org/my-project-docs#89: Update docs for rate limiting on auth endpoints
+                </a>
+                <p style="margin-top:12px;color:var(--gh-text-secondary);font-size:13px;">1 file was skipped (unchecked): <code>docs/deployment.md</code></p>`);
+        }
+
+        function showCTA() {}
+
+        updateNarration();
+    </script>
+</body>
+</html>
