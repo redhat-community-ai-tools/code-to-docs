@@ -7,8 +7,15 @@ branding:
   color: 'blue'
 
 inputs:
-  gemini-api-key:
-    description: 'Gemini API key for AI-powered analysis'
+  model-api-base:
+    description: 'Base URL for an OpenAI-compatible API (e.g. vLLM on OpenShift AI, Gemini, etc.)'
+    required: true
+  model-api-key:
+    description: 'API key for the model endpoint (leave empty if not required)'
+    required: false
+    default: ''
+  model-name:
+    description: 'Model name to use for inference (e.g. meta-llama/Llama-3.1-8B-Instruct, gemini-2.0-flash)'
     required: true
   docs-repo-url:
     description: 'URL of the documentation repository'
@@ -55,7 +62,9 @@ runs:
   using: 'docker'
   image: 'Dockerfile'
   env:
-    GEMINI_API_KEY: ${{ inputs.gemini-api-key }}
+    MODEL_API_BASE: ${{ inputs.model-api-base }}
+    MODEL_API_KEY: ${{ inputs.model-api-key }}
+    MODEL_NAME: ${{ inputs.model-name }}
     DOCS_REPO_URL: ${{ inputs.docs-repo-url }}
     DOCS_SUBFOLDER: ${{ inputs.docs-subfolder }}
     GH_TOKEN: ${{ inputs.github-token }}

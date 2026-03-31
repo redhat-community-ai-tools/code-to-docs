@@ -5,8 +5,7 @@ import subprocess
 import argparse
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from google import genai
-from google.genai import types
+from openai import OpenAI
 
 # Import security utilities
 from security_utils import (
@@ -33,7 +32,11 @@ from doc_index import (
 )
 
 # === CONFIG ===
-client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+client = OpenAI(
+    base_url=os.environ["MODEL_API_BASE"],
+    api_key=os.environ.get("MODEL_API_KEY") or "EMPTY",
+)
+MODEL_NAME = os.environ.get("MODEL_NAME", "default")
 DOCS_REPO_URL = os.environ["DOCS_REPO_URL"]
 BRANCH_NAME = "doc-update-from-pr"
 
@@ -274,26 +277,24 @@ Provide a detailed summary that would help an AI system understand when this fil
     
     for attempt in range(max_retries):
         try:
-            response = client.models.generate_content(
-                model="gemini-3-flash-preview",
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    thinking_config=types.ThinkingConfig(thinking_budget=0)
-                ),
+            response = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[{"role": "user", "content": prompt}],
             )
-            
-            if response and response.text:
-                return response.text.strip()
+
+            result_text = response.choices[0].message.content
+            if result_text:
+                return result_text.strip()
             else:
                 print(f"Empty response for {file_path} (attempt {attempt + 1}), retrying...")
-                
+
         except Exception as e:
             error_str = sanitize_output(str(e))
             wait_time = (attempt + 1) * 3
             print(f"Error for {file_path} (attempt {attempt + 1}/{max_retries}): {error_str}, waiting {wait_time}s...")
             import time
             time.sleep(wait_time)
-    
+
     raise Exception(f"Failed to summarize {file_path} after {max_retries} attempts")
 
 def get_file_content_or_summaries(line_threshold=300):
@@ -380,37 +381,34 @@ def _process_file_selection_batch(diff, batch, batch_num, total_batches, max_ret
 
     for attempt in range(max_retries):
         try:
-            response = client.models.generate_content(
-                model="gemini-3-flash-preview",
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    thinking_config=types.ThinkingConfig(thinking_budget=0)
-                ),
+            response = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[{"role": "user", "content": prompt}],
             )
-            
-            result_text = response.text.strip() if response.text else ""
+
+            result_text = (response.choices[0].message.content or "").strip()
             if not result_text:
                 if attempt < max_retries - 1:
                     import time
                     time.sleep(2 * (attempt + 1))
                     continue
                 return batch_num, []
-            
+
             if result_text.upper() == "NONE":
                 print(f"Batch {batch_num}: No relevant files found")
                 return batch_num, []
-            
+
             # Filter to only documentation files
             suggested_files = [line.strip() for line in result_text.splitlines() if line.strip()]
             filtered_files = [f for f in suggested_files if f.endswith('.adoc') or f.endswith('.md') or f.endswith('.rst')]
-            
+
             if len(filtered_files) != len(suggested_files):
                 skipped = [f for f in suggested_files if not (f.endswith('.adoc') or f.endswith('.md') or f.endswith('.rst'))]
                 print(f"Batch {batch_num}: Skipping non-documentation files: {skipped}")
-            
+
             print(f"Batch {batch_num}: Found {len(filtered_files)} relevant files")
             return batch_num, filtered_files
-            
+
         except Exception as e:
             if attempt < max_retries - 1:
                 import time
@@ -420,11 +418,11 @@ def _process_file_selection_batch(diff, batch, batch_num, total_batches, max_ret
             else:
                 print(f"Batch {batch_num}: Failed after retries - {sanitize_output(str(e))}")
                 return batch_num, []
-    
+
     return batch_num, []
 
 
-def ask_gemini_for_relevant_files(diff, file_previews, max_workers=5):
+def ask_ai_for_relevant_files(diff, file_previews, max_workers=5):
     all_relevant_files = []
     batch_size = 10
     
@@ -609,7 +607,7 @@ def find_relevant_files_optimized(diff):
     # Stage 3: Use AI to pick exact files from candidates (1 API call typically)
     # Since we have fewer files now, this is much faster
     print(f"AI selecting exact files from {len(file_previews)} candidates...")
-    relevant_files = ask_gemini_for_relevant_files(diff, file_previews)
+    relevant_files = ask_ai_for_relevant_files(diff, file_previews)
     
     return relevant_files
 
@@ -637,7 +635,7 @@ def generate_updates_parallel(diff, relevant_files, max_workers=5, user_instruct
             return None
 
         print(f"Checking if {file_path} needs an update...")
-        updated = ask_gemini_for_updated_content(
+        updated = ask_ai_for_updated_content(
             diff, file_path, current,
             user_instructions=user_instructions,
             file_instructions=file_instructions
@@ -683,7 +681,7 @@ def load_full_content(file_path):
         print(f"Failed to read {file_path}: {sanitize_output(str(e))}")
         return ""
 
-def ask_gemini_for_updated_content(diff, file_path, current_content, user_instructions="", file_instructions=None):
+def ask_ai_for_updated_content(diff, file_path, current_content, user_instructions="", file_instructions=None):
     # Determine file format based on extension
     is_markdown = file_path.endswith('.md')
     is_asciidoc = file_path.endswith('.adoc')
@@ -816,14 +814,11 @@ The human reviewer has provided the following guidance. Follow these instruction
 {chr(10).join(combined_instructions)}
 """
 
-    response = client.models.generate_content(
-        model="gemini-3-flash-preview",
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            thinking_config=types.ThinkingConfig(thinking_budget=0)
-        ),
+    response = client.chat.completions.create(
+        model=MODEL_NAME,
+        messages=[{"role": "user", "content": prompt}],
     )
-    return response.text.strip()
+    return (response.choices[0].message.content or "").strip()
 
 def overwrite_file(file_path, new_content):
     """
@@ -875,15 +870,12 @@ Do NOT use line breaks - write as a single paragraph.
 """
     
     try:
-        response = client.models.generate_content(
-            model="gemini-3-flash-preview",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(thinking_budget=0)
-            ),
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[{"role": "user", "content": prompt}],
         )
         # Clean up: replace newlines with spaces for consistent formatting
-        result = response.text.strip()
+        result = (response.choices[0].message.content or "").strip()
         result = ' '.join(result.split())  # Collapse all whitespace to single spaces
         return result
     except Exception as e:
@@ -1202,7 +1194,7 @@ def post_review_comment(files_with_content, pr_number, commit_info=None, include
         comment_parts.append("  - **Global** (first line): `[\u200bupdate-docs] keep changes minimal, don't add new sections`")
         comment_parts.append("  - **Per-file** (next lines): `config-ref.rst: only update the CLI usage example`")
         comment_parts.append("")
-        comment_parts.append("*Powered by Gemini AI* ✨")
+        comment_parts.append("*Powered by code-to-docs AI* ✨")
         
         comment_body = "\n".join(comment_parts)
     
@@ -1256,7 +1248,7 @@ def push_and_open_pr(modified_files, commit_info=None):
                 commit_msg += f"\n\nCommit Link: {commit_url}"
                 commit_msg += f"\nLatest commit: {commit_info['short_hash']}"
         
-        commit_msg += "\n\nAssisted-by: Gemini"
+        commit_msg += "\n\nAssisted-by: code-to-docs AI"
         
         # Commit changes
         result = run_command_safe([
@@ -1305,7 +1297,7 @@ def push_and_open_pr(modified_files, commit_info=None):
                 pr_body += f"- PR: {commit_info['pr_url']}\n"
             pr_body += f"- Commit: `{commit_info['short_hash']}`"
         
-        pr_body += "\n\n*Assisted by Gemini*"
+        pr_body += "\n\n*Assisted by code-to-docs AI*"
         
         # Check if PR already exists for this branch
         print("Checking for existing pull request...")
@@ -1454,11 +1446,11 @@ def main():
                 print("No documentation files found to process.")
                 return
 
-            print("Asking Gemini for relevant files...")
-            relevant_files = ask_gemini_for_relevant_files(diff, file_previews)
+            print("Asking AI for relevant files...")
+            relevant_files = ask_ai_for_relevant_files(diff, file_previews)
 
     if not relevant_files:
-        print("Gemini did not suggest any files.")
+        print("AI did not suggest any files.")
         # Still post a comment saying no updates needed
         if review_mode or update_mode:
             post_review_comment([], pr_number, commit_info, include_full_content=False)
@@ -1494,7 +1486,7 @@ def main():
                 continue
 
             print(f"Checking if {file_path} needs an update...")
-            updated = ask_gemini_for_updated_content(
+            updated = ask_ai_for_updated_content(
                 diff, file_path, current,
                 user_instructions=user_instructions, file_instructions=file_instructions
             )
@@ -1543,7 +1535,7 @@ def main():
                         commit_msg += f"\n\nCommit Link: {commit_url}"
                         commit_msg += f"\nLatest commit: {commit_info['short_hash']}"
                     
-                    commit_msg += "\n\nAssisted-by: Gemini"
+                    commit_msg += "\n\nAssisted-by: code-to-docs AI"
                     
                     print(f"\n[Dry Run] Commit message would be:")
                     print("=" * 50)

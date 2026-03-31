@@ -293,7 +293,9 @@
       - <span class="yaml-key">name:</span> <span class="yaml-value">Documentation Assistant</span>
         <span class="yaml-key">uses:</span> <span class="yaml-value">redhat-community-ai-tools/code-to-docs@main</span>
         <span class="yaml-key">with:</span>
-          <span class="yaml-key">gemini-api-key:</span> <span class="yaml-value">${{ secrets.GEMINI_API_KEY }}</span>
+          <span class="yaml-key">model-api-base:</span> <span class="yaml-value">${{ secrets.MODEL_API_BASE }}</span>
+          <span class="yaml-key">model-api-key:</span> <span class="yaml-value">${{ secrets.MODEL_API_KEY }}</span>
+          <span class="yaml-key">model-name:</span> <span class="yaml-value">${{ secrets.MODEL_NAME }}</span>
           <span class="yaml-key">docs-repo-url:</span> <span class="yaml-value">${{ secrets.DOCS_REPO_URL }}</span>
           <span class="yaml-key">github-token:</span> <span class="yaml-value">${{ secrets.GH_PAT }}</span>
           <span class="yaml-key">pr-number:</span> <span class="yaml-value">${{ github.event.issue.number }}</span>
@@ -317,9 +319,19 @@
                         </thead>
                         <tbody>
                             <tr>
-                                <td><span class="secret-name">GEMINI_API_KEY</span></td>
+                                <td><span class="secret-name">MODEL_API_BASE</span></td>
                                 <td><span class="secret-dots">&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;</span></td>
-                                <td>API key from Google AI Studio</td>
+                                <td>Base URL for OpenAI-compatible API (e.g., vLLM, Gemini, OpenAI)</td>
+                            </tr>
+                            <tr>
+                                <td><span class="secret-name">MODEL_API_KEY</span></td>
+                                <td><span class="secret-dots">&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;</span></td>
+                                <td>API key for the model endpoint (optional if no auth required)</td>
+                            </tr>
+                            <tr>
+                                <td><span class="secret-name">MODEL_NAME</span></td>
+                                <td><span class="secret-dots">&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;</span></td>
+                                <td>Model name to use for inference</td>
                             </tr>
                             <tr>
                                 <td><span class="secret-name">DOCS_REPO_URL</span></td>
@@ -504,7 +516,7 @@
             },
             {
                 title: "Step 1: Set Up the GitHub Action",
-                text: "Setting up Code-to-Docs takes two steps: add a workflow file to your repository and configure three secrets. That's it \u2014 the action is ready to use.",
+                text: "Setting up Code-to-Docs takes two steps: add a workflow file to your repository and configure your secrets (model endpoint, API key, model name, docs repo URL, and GitHub token). That's it \u2014 the action is ready to use.",
                 buttonText: "Continue &#8594;",
                 position: "bottom-right",
                 action: "showSetup"

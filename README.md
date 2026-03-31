@@ -3,7 +3,7 @@
 [![GitHub Action](https://img.shields.io/badge/GitHub-Action-blue.svg)](https://github.com/marketplace/actions/upstream-docs-enhancer)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-AI-powered GitHub Action that automatically analyzes code changes and updates documentation using Gemini AI.
+AI-powered GitHub Action that automatically analyzes code changes and updates documentation using any OpenAI-compatible LLM (vLLM on OpenShift AI, Gemini, OpenAI, etc.).
 
 ## Usage
 
@@ -90,7 +90,9 @@ jobs:
       - name: Documentation Assistant
         uses: redhat-community-ai-tools/code-to-docs@main
         with:
-          gemini-api-key: ${{ secrets.GEMINI_API_KEY }}
+          model-api-base: ${{ secrets.MODEL_API_BASE }}
+          model-api-key: ${{ secrets.MODEL_API_KEY }}
+          model-name: ${{ secrets.MODEL_NAME }}
           docs-repo-url: ${{ secrets.DOCS_REPO_URL }}
           github-token: ${{ secrets.GH_PAT }}
           pr-number: ${{ github.event.issue.number }}
@@ -107,15 +109,28 @@ Add these in **Settings → Secrets → Actions**:
 
 | Secret | Description |
 |--------|-------------|
-| `GEMINI_API_KEY` | Get from [Google AI Studio](https://aistudio.google.com/app/apikey) |
+| `MODEL_API_BASE` | Base URL of an OpenAI-compatible API (see examples below) |
+| `MODEL_API_KEY` | API key for the model endpoint (leave empty if not required) |
+| `MODEL_NAME` | Model name to use (e.g., `meta-llama/Llama-3.1-8B-Instruct`, `gemini-2.0-flash`) |
 | `DOCS_REPO_URL` | Docs repository URL (e.g., `https://github.com/org/docs`) |
 | `GH_PAT` | GitHub token with `repo` + `pull_requests:write` permissions |
 | `DOCS_SUBFOLDER` | _(Optional)_ Docs subfolder path (e.g., `docs`) |
 | `DOCS_BASE_BRANCH` | _(Optional)_ Base branch for docs PRs (default: `main`) |
 
+### Supported Model Backends
+
+Any OpenAI-compatible API works. Common examples:
+
+| Backend | `MODEL_API_BASE` | `MODEL_NAME` |
+|---------|-----------------|--------------|
+| vLLM on OpenShift AI | `https://my-model-predictor-namespace.apps.cluster.example.com/v1` | Your InferenceService name (check `/v1/models`) |
+| Gemini | `https://generativelanguage.googleapis.com/v1beta/openai/` | `gemini-2.0-flash` |
+| OpenAI | `https://api.openai.com/v1` | `gpt-4o` |
+| Ollama | `http://localhost:11434/v1` | `llama3.1` |
+
 ## Features
 
-- 🤖 **AI-Powered Analysis** - Uses Gemini to identify relevant docs
+- 🤖 **AI-Powered Analysis** - Uses any OpenAI-compatible LLM to identify relevant docs
 - 📝 **Smart Suggestions** - Only updates what's necessary
 - 🔍 **Review Mode** - See changes before applying
 - ⚡ **Auto-Update Mode** - Create PRs automatically

@@ -11,7 +11,7 @@ RUN curl -fsSL https://cli.github.com/packages/rpm/gh-cli.repo | tee /etc/yum.re
     && dnf install -y gh jq
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -U google-genai
+RUN pip install --no-cache-dir -U openai
 
 # Set up working directory
 WORKDIR /app

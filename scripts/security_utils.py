@@ -34,10 +34,10 @@ def sanitize_output(text, sensitive_tokens=None):
     if gh_token:
         sensitive_tokens.append(gh_token)
     
-    # Add GEMINI_API_KEY to sensitive list
-    gemini_key = os.environ.get("GEMINI_API_KEY", "")
-    if gemini_key:
-        sensitive_tokens.append(gemini_key)
+    # Add MODEL_API_KEY to sensitive list
+    model_key = os.environ.get("MODEL_API_KEY", "")
+    if model_key:
+        sensitive_tokens.append(model_key)
     
     # Replace all sensitive tokens
     sanitized = text

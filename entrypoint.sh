@@ -36,8 +36,13 @@ if [ -n "$COMMENT_BODY" ]; then
 fi
 
 # Validate required inputs
-if [ -z "$GEMINI_API_KEY" ]; then
-  echo "❌ Error: gemini-api-key input is required"
+if [ -z "$MODEL_API_BASE" ]; then
+  echo "❌ Error: model-api-base input is required"
+  exit 1
+fi
+
+if [ -z "$MODEL_NAME" ]; then
+  echo "❌ Error: model-name input is required"
   exit 1
 fi
 

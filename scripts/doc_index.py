@@ -27,8 +27,7 @@ import time
 # Thread lock for manifest file operations (prevents race conditions in parallel summary generation)
 _manifest_lock = threading.Lock()
 
-from google import genai
-from google.genai import types
+from openai import OpenAI
 
 # Import security utilities for safe output
 from security_utils import sanitize_output, run_command_safe
@@ -44,8 +43,16 @@ MAX_WORKERS_API = 10   # Parallel threads for API calls
 
 
 def get_client():
-    """Get Gemini client"""
-    return genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    """Get OpenAI-compatible client"""
+    return OpenAI(
+        base_url=os.environ["MODEL_API_BASE"],
+        api_key=os.environ.get("MODEL_API_KEY") or "EMPTY",
+    )
+
+
+def get_model_name():
+    """Get the configured model name"""
+    return os.environ.get("MODEL_NAME", "default")
 
 
 def hash_file(file_path):
@@ -288,14 +295,12 @@ Be thorough - this index will be used to automatically match code changes to doc
 """
 
     try:
-        response = client.models.generate_content(
-            model="gemini-3-flash-preview",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(thinking_budget=0)
-            ),
+        model_name = get_model_name()
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=[{"role": "user", "content": prompt}],
         )
-        return response.text.strip()
+        return (response.choices[0].message.content or "").strip()
     except Exception as e:
         print(f"Error generating index for {folder}: {sanitize_output(str(e))}")
         return None
@@ -712,7 +717,7 @@ def find_relevant_areas_from_indexes(diff, client=None):
     
     Args:
         diff: The code diff to analyze
-        client: Optional Gemini client
+        client: Optional OpenAI-compatible client
     
     Returns:
         list: Folder names that might contain relevant documentation
@@ -804,7 +809,7 @@ def _process_area_batch(client, prompt, batch_num, total_batches, batch_folders)
     Process a single batch of indexes to find relevant areas.
     
     Args:
-        client: Gemini client
+        client: OpenAI-compatible client
         prompt: The prompt for this batch
         batch_num: Current batch number
         total_batches: Total number of batches
@@ -813,20 +818,18 @@ def _process_area_batch(client, prompt, batch_num, total_batches, batch_folders)
     Returns:
         list: Relevant folder names from this batch
     """
+    model_name = get_model_name()
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            response = client.models.generate_content(
-                model="gemini-3-flash-preview",
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    thinking_config=types.ThinkingConfig(thinking_budget=0)
-                ),
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
             )
-            
-            # Check for empty or malformed response (safely access response.text)
+
+            # Check for empty or malformed response
             try:
-                response_text = response.text
+                response_text = response.choices[0].message.content
             except Exception as text_err:
                 print(f"Batch {batch_num}/{total_batches}: Could not get response text (attempt {attempt + 1})")
                 if attempt < max_retries - 1:
