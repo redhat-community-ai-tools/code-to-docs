@@ -146,6 +146,18 @@
         .unchecked-file .filename { text-decoration: line-through; }
         .unchecked-file .file-description { text-decoration: line-through; }
         .unchecked-file .file-suggestion { text-decoration: line-through; }
+        .docs-before-after { display: flex; gap: 16px; margin: 16px 0; }
+        .docs-before-after .docs-panel { flex: 1; border: 1px solid var(--gh-border); border-radius: 6px; overflow: hidden; }
+        .docs-panel-header { padding: 8px 16px; font-size: 13px; font-weight: 600; border-bottom: 1px solid var(--gh-border); display: flex; align-items: center; gap: 8px; }
+        .docs-panel-header.before { background: var(--gh-diff-red-bg); color: var(--gh-red); }
+        .docs-panel-header.after { background: var(--gh-diff-green-bg); color: var(--gh-green); }
+        .docs-panel-content { padding: 16px; font-size: 13px; line-height: 1.7; font-family: 'SFMono-Regular', Consolas, monospace; white-space: pre-wrap; color: var(--gh-text-secondary); max-height: 400px; overflow-y: auto; }
+        .docs-panel-content .doc-heading { color: var(--gh-text); font-weight: 700; }
+        .docs-panel-content .doc-added { background: var(--gh-diff-green-line); color: var(--gh-text); display: block; margin: 2px -16px; padding: 1px 16px; }
+        .docs-file-tabs { display: flex; border-bottom: 1px solid var(--gh-border); margin-bottom: 16px; }
+        .docs-file-tab { padding: 8px 16px; font-size: 13px; color: var(--gh-text-secondary); cursor: pointer; border-bottom: 2px solid transparent; font-family: 'SFMono-Regular', Consolas, monospace; }
+        .docs-file-tab.active { color: var(--gh-text); border-bottom-color: var(--gh-blue); }
+        .docs-file-tab:hover { color: var(--gh-text); }
         .docs-pr-link {
             display: inline-flex; align-items: center; gap: 6px; background: var(--gh-bg-secondary);
             border: 1px solid var(--gh-border); border-radius: 6px; padding: 8px 16px;
@@ -160,6 +172,7 @@
         .narration-box.position-center { top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important; }
         .narration-box.position-bottom-right { top: auto !important; bottom: 30px !important; left: auto !important; right: 30px !important; transform: none !important; }
         .narration-box.position-top-right { top: 120px !important; bottom: auto !important; left: auto !important; right: 30px !important; transform: none !important; }
+        .narration-box.position-top-left { top: 120px !important; bottom: auto !important; left: 30px !important; right: auto !important; transform: none !important; }
         .step-indicator { display: flex; gap: 6px; margin-bottom: 16px; }
         .step-dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.2); transition: all 0.3s; }
         .step-dot.active { background: #3b82f6; box-shadow: 0 0 8px rgba(59, 130, 246, 0.5); }
@@ -359,6 +372,120 @@
             </div>
         </div>
 
+        <!-- Generated Docs View -->
+        <div class="view" id="docsView" style="display:none;">
+            <div class="repo-breadcrumb">
+                <a>my-org</a><span class="separator">/</span><a>my-project-docs</a><span class="separator">/</span><span style="color:var(--gh-text)">PR #89</span>
+            </div>
+            <div class="pr-page">
+                <div class="pr-title-section">
+                    <h1 class="pr-title">Auto-Generated Doc Updates from Code PR <span class="pr-number">#89</span></h1>
+                    <div class="pr-status">
+                        <span class="pr-status-badge open">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354Z"/></svg>
+                            Open
+                        </span>
+                        <span class="pr-meta">
+                            <strong>github-actions</strong> wants to merge 1 commit into <code>main</code> from <code>doc-update-from-pr</code>
+                        </span>
+                    </div>
+                </div>
+
+                <div class="docs-file-tabs">
+                    <div class="docs-file-tab active" onclick="switchDocsTab('auth')">docs/api/authentication.md</div>
+                    <div class="docs-file-tab" onclick="switchDocsTab('config')">docs/configuration.md</div>
+                </div>
+
+                <div id="docsTabAuth">
+                    <div class="docs-before-after">
+                        <div class="docs-panel">
+                            <div class="docs-panel-header before">Before</div>
+                            <div class="docs-panel-content"><span class="doc-heading">## Authentication Endpoints</span>
+
+<span class="doc-heading">### POST /auth/login</span>
+
+Authenticates a user with email and password.
+
+**Request Body:**
+```json
+{
+  "email": "user@example.com",
+  "password": "secret"
+}
+```
+
+**Response:** `200 OK` with JWT token.
+
+<span class="doc-heading">### POST /auth/token</span>
+
+Refreshes an expired JWT token.
+
+**Response:** `200 OK` with new token.</div>
+                        </div>
+                        <div class="docs-panel">
+                            <div class="docs-panel-header after">After (AI-generated)</div>
+                            <div class="docs-panel-content"><span class="doc-heading">## Authentication Endpoints</span>
+
+<span class="doc-heading">### POST /auth/login</span>
+
+Authenticates a user with email and password.
+
+**Request Body:**
+```json
+{
+  "email": "user@example.com",
+  "password": "secret"
+}
+```
+
+**Response:** `200 OK` with JWT token.
+<span class="doc-added">
+<span class="doc-heading">#### Rate Limiting</span></span><span class="doc-added">
+This endpoint is rate-limited. Exceeding the limit</span><span class="doc-added">returns `429 Too Many Requests` with a `Retry-After`</span><span class="doc-added">header indicating when the next request is allowed.</span><span class="doc-added">
+Default: 100 requests per 60-second window.</span>
+
+<span class="doc-heading">### POST /auth/token</span>
+
+Refreshes an expired JWT token.
+
+**Response:** `200 OK` with new token.
+<span class="doc-added">
+<span class="doc-heading">#### Rate Limiting</span></span><span class="doc-added">
+This endpoint shares the same rate limiting policy</span><span class="doc-added">as `/auth/login`. See above for details.</span></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="docsTabConfig" style="display:none;">
+                    <div class="docs-before-after">
+                        <div class="docs-panel">
+                            <div class="docs-panel-header before">Before</div>
+                            <div class="docs-panel-content"><span class="doc-heading">## Configuration Reference</span>
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `8080` | Server port |
+| `LOG_LEVEL` | `info` | Logging level |
+| `SESSION_TIMEOUT` | `3600` | Session timeout in seconds |
+| `DB_CONNECTION` | — | Database connection string |</div>
+                        </div>
+                        <div class="docs-panel">
+                            <div class="docs-panel-header after">After (AI-generated)</div>
+                            <div class="docs-panel-content"><span class="doc-heading">## Configuration Reference</span>
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `8080` | Server port |
+| `LOG_LEVEL` | `info` | Logging level |
+| `SESSION_TIMEOUT` | `3600` | Session timeout in seconds |
+| `DB_CONNECTION` | — | Database connection string |
+<span class="doc-added">| `RATE_LIMIT_MAX_REQUESTS` | `100` | Max requests per window |</span><span class="doc-added">| `RATE_LIMIT_WINDOW_SECONDS` | `60` | Rate limit window in seconds |</span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- PR View -->
         <div class="view" id="prView">
             <div class="repo-breadcrumb">
@@ -550,6 +677,13 @@
                 action: "runUpdateSequence"
             },
             {
+                title: "Step 6: The Generated Documentation",
+                text: "Here's what the AI-generated documentation looks like. The action added a rate limiting section to the API docs and new configuration options to the config reference \u2014 matching the project's existing style and conventions.",
+                buttonText: "Continue &#8594;",
+                position: "top-right",
+                action: "showGeneratedDocs"
+            },
+            {
                 title: "Ready to Try Code-to-Docs?",
                 text: "Set up the GitHub Action in your repository and comment <code>[review-docs]</code> on your next pull request. Your documentation will thank you.",
                 buttonText: "&#8634; Restart Demo",
@@ -577,7 +711,7 @@
             document.getElementById('btnNext').innerHTML = step.buttonText;
             document.getElementById('btnBack').disabled = demoStep === 0;
             const box = document.getElementById('narrationBox');
-            box.classList.remove('position-center', 'position-bottom-right', 'position-top-right');
+            box.classList.remove('position-center', 'position-bottom-right', 'position-top-right', 'position-top-left');
             box.classList.add('position-' + step.position.replace(' ', '-'));
             buildStepIndicator();
         }
@@ -617,6 +751,7 @@
         function hideAllViews() {
             document.getElementById('setupView').style.display = 'none';
             document.getElementById('prView').style.display = 'none';
+            document.getElementById('docsView').style.display = 'none';
         }
 
         function switchTab(tab) {
@@ -846,9 +981,22 @@ Changes may not be necessary.</div>
                 </ul>
                 <a class="docs-pr-link" href="#">
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354Z"/></svg>
-                    my-org/my-project-docs#89: Update docs for rate limiting on auth endpoints
+                    my-org/my-project-docs#89: Auto-Generated Doc Updates from Code PR
                 </a>
                 <p style="margin-top:12px;color:var(--gh-text-secondary);font-size:13px;">1 file was skipped (unchecked): <code>docs/deployment.md</code></p>`);
+        }
+
+        function showGeneratedDocs(instant) {
+            hideAllViews();
+            document.getElementById('docsView').style.display = 'block';
+            document.getElementById('demoContainer').scrollTop = 0;
+        }
+
+        function switchDocsTab(tab) {
+            document.getElementById('docsTabAuth').style.display = tab === 'auth' ? 'block' : 'none';
+            document.getElementById('docsTabConfig').style.display = tab === 'config' ? 'block' : 'none';
+            document.querySelectorAll('.docs-file-tab').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
         }
 
         function showCTA() {}
