@@ -19,6 +19,7 @@ import subprocess
 import shutil
 import tempfile
 import threading
+from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -27,10 +28,12 @@ import time
 # Thread lock for manifest file operations (prevents race conditions in parallel summary generation)
 _manifest_lock = threading.Lock()
 
-from openai import OpenAI
+# Import configuration
+from config import get_client, get_model_name, get_max_context_chars, truncate_content, truncate_diff, check_context_error
 
 # Import security utilities for safe output
 from security_utils import sanitize_output, run_command_safe
+from utils import retry_with_backoff, calc_backoff_delay
 
 # Index configuration
 INDEX_DIR = ".doc-index"
@@ -42,17 +45,15 @@ MAX_WORKERS_INDEX = 5  # Parallel threads for index generation
 MAX_WORKERS_API = 10   # Parallel threads for API calls
 
 
-def get_client():
-    """Get OpenAI-compatible client"""
-    return OpenAI(
-        base_url=os.environ["MODEL_API_BASE"],
-        api_key=os.environ.get("MODEL_API_KEY") or "EMPTY",
-    )
-
-
-def get_model_name():
-    """Get the configured model name"""
-    return os.environ.get("MODEL_NAME", "default")
+@contextmanager
+def working_directory(path):
+    """Context manager that changes CWD and restores it on exit, even if an exception occurs."""
+    original = os.getcwd()
+    try:
+        os.chdir(str(path))
+        yield
+    finally:
+        os.chdir(original)
 
 
 def hash_file(file_path):
@@ -210,7 +211,7 @@ def get_folder_doc_hashes(folder, docs_root=None):
 def folder_needs_reindex(folder, manifest, docs_root=None):
     """
     Check if a folder needs its index regenerated.
-    
+
     Args:
         folder: Folder name
         manifest: The loaded manifest
@@ -218,55 +219,20 @@ def folder_needs_reindex(folder, manifest, docs_root=None):
     """
     if folder not in manifest.get("folders", {}):
         return True
-    
+
+    # Check if the index file actually exists (manifest may be stale)
+    if load_index(folder, docs_root) is None:
+        return True
+
     stored_hashes = manifest["folders"][folder].get("doc_hashes", {})
     current_hashes = get_folder_doc_hashes(folder, docs_root)
-    
+
     return stored_hashes != current_hashes
 
 
-def build_index_for_folder(folder, client=None):
-    """
-    Build a semantic index for a documentation folder.
-    
-    The index includes:
-    - Overview of what the folder documents
-    - Summary of each file's purpose
-    - Description of what code changes would affect this documentation
-    - Key technical terms and concepts
-    """
-    if client is None:
-        client = get_client()
-    
-    docs = get_docs_in_folder(folder)
-    if not docs:
-        return None
-    
-    # Gather content from all docs in the folder
-    docs_content = []
-    for doc in docs:
-        try:
-            content = doc.read_text(encoding='utf-8')
-            # Truncate very long files to avoid token limits
-            if len(content) > 50000:
-                content = content[:50000] + "\n\n[... truncated for length ...]"
-            docs_content.append({
-                "path": str(doc),
-                "content": content
-            })
-        except Exception as e:
-            print(f"Warning: Could not read {doc}: {sanitize_output(str(e))}")
-    
-    if not docs_content:
-        return None
-    
-    # Format docs for the prompt - use more content for better understanding
-    docs_text = "\n\n---\n\n".join([
-        f"### File: {d['path']}\n\n{d['content'][:20000]}"  # First 20000 chars per file for better context
-        for d in docs_content
-    ])
-    
-    prompt = f"""
+def _build_index_prompt(folder, docs_text):
+    """Build the index generation prompt for a folder with given docs content."""
+    return f"""
 Analyze these documentation files from the "{folder}" folder and create a comprehensive semantic index.
 
 Documentation Files:
@@ -294,28 +260,218 @@ Generate a structured index in the following format:
 Be thorough - this index will be used to automatically match code changes to documentation that needs updates.
 """
 
+
+def _batch_docs_by_budget(docs_content, budget, prompt_overhead):
+    """
+    Split docs into batches where each batch fits within the budget at full content.
+
+    If a single file is larger than the available budget, it is truncated to fit
+    in its own batch.
+
+    Args:
+        docs_content: List of {"path": str, "content": str} dicts
+        budget: Total character budget for the prompt
+        prompt_overhead: Characters used by the prompt template (excluding docs)
+
+    Returns:
+        list[list]: List of batches, each batch is a list of doc dicts
+    """
+    available = budget - prompt_overhead
+    batches = []
+    current_batch = []
+    current_size = 0
+
+    for doc in docs_content:
+        # Size of this file when formatted: "### File: path\n\ncontent" + separator
+        formatting_overhead = len(f"### File: {doc['path']}\n\n") + 10
+        entry_size = formatting_overhead + len(doc['content'])
+
+        # If a single file exceeds the budget, truncate it to fit in its own batch
+        if entry_size > available:
+            if current_batch:
+                batches.append(current_batch)
+                current_batch = []
+                current_size = 0
+            max_content = available - formatting_overhead
+            truncated_doc = {
+                "path": doc["path"],
+                "content": truncate_content(doc["content"], max_content, label=doc["path"]),
+            }
+            batches.append([truncated_doc])
+            continue
+
+        if current_batch and current_size + entry_size > available:
+            # Current batch is full, start a new one
+            batches.append(current_batch)
+            current_batch = []
+            current_size = 0
+
+        current_batch.append(doc)
+        current_size += entry_size
+
+    if current_batch:
+        batches.append(current_batch)
+
+    return batches
+
+
+def build_index_for_folder(folder, client=None):
+    """
+    Build a semantic index for a documentation folder.
+
+    If all files fit within the context budget at full content, processes in a
+    single API call. Otherwise, batches files into groups that fit the budget,
+    makes one call per batch, and concatenates the partial indexes.
+
+    The index includes:
+    - Overview of what the folder documents
+    - Summary of each file's purpose
+    - Description of what code changes would affect this documentation
+    - Key technical terms and concepts
+    """
+    if client is None:
+        client = get_client()
+
+    docs = get_docs_in_folder(folder)
+    if not docs:
+        return None
+
+    # Gather content from all docs in the folder
+    docs_content = []
+    for doc in docs:
+        try:
+            content = doc.read_text(encoding='utf-8')
+            docs_content.append({
+                "path": str(doc),
+                "content": content
+            })
+        except Exception as e:
+            print(f"Warning: Could not read {doc}: {sanitize_output(str(e))}")
+
+    if not docs_content:
+        return None
+
+    budget = get_max_context_chars()
+    # Measure actual prompt overhead (template without docs)
+    prompt_overhead = len(_build_index_prompt(folder, ""))
+
+    # Check if all files fit in a single call
+    total_content_size = sum(
+        len(f"### File: {d['path']}\n\n{d['content']}") + 10
+        for d in docs_content
+    )
+
+    if total_content_size + prompt_overhead <= budget:
+        # All files fit — single call with full content
+        docs_text = "\n\n---\n\n".join([
+            f"### File: {d['path']}\n\n{d['content']}"
+            for d in docs_content
+        ])
+        prompt = _build_index_prompt(folder, docs_text)
+
+        try:
+            model_name = get_model_name()
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return (response.choices[0].message.content or "").strip()
+        except Exception as e:
+            print(f"Error generating index for {folder}: {sanitize_output(str(e))}")
+            return None
+
+    # Files don't fit in one call — batch them
+    batches = _batch_docs_by_budget(docs_content, budget, prompt_overhead)
+    print(f"  Folder '{folder}' has {len(docs_content)} files ({total_content_size:,} chars) — processing in {len(batches)} batches")
+
+    partial_indexes = []
+    model_name = get_model_name()
+
+    for i, batch in enumerate(batches, 1):
+        docs_text = "\n\n---\n\n".join([
+            f"### File: {d['path']}\n\n{d['content']}"
+            for d in batch
+        ])
+        print(f"  Batch {i}/{len(batches)}: {len(batch)} files")
+
+        prompt = _build_index_prompt(folder, docs_text)
+
+        try:
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            result = (response.choices[0].message.content or "").strip()
+            if result:
+                partial_indexes.append(result)
+        except Exception as e:
+            print(f"Error generating index for {folder} batch {i}: {sanitize_output(str(e))}")
+
+    if not partial_indexes:
+        return None
+
+    if len(partial_indexes) == 1:
+        return partial_indexes[0]
+
+    # Merge partial indexes into a single coherent index
+    print(f"  Merging {len(partial_indexes)} partial indexes into one...")
+    combined = "\n\n---\n\n".join(partial_indexes)
+
+    merge_prompt = f"""
+You are given {len(partial_indexes)} partial documentation indexes for the "{folder}" folder.
+Each was generated from a different batch of files. They have overlapping structure
+(each has its own Overview, Files Summary, etc.).
+
+Merge them into a single, unified index with NO duplicate sections.
+
+PARTIAL INDEXES:
+{combined}
+
+OUTPUT FORMAT — produce exactly ONE index with these sections:
+
+# {folder.upper()} Documentation Index
+
+## Overview
+[Merge the overviews into one coherent 2-3 sentence description]
+
+## Files Summary
+[Combine ALL file summaries from all partials into one list — no duplicates]
+
+## Code Changes That Would Require Documentation Updates
+[Merge and deduplicate all entries]
+
+## Key Technical Concepts
+[Merge and deduplicate all entries]
+
+## Related Components
+[Merge and deduplicate all entries]
+"""
+
     try:
-        model_name = get_model_name()
         response = client.chat.completions.create(
             model=model_name,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": merge_prompt}],
         )
-        return (response.choices[0].message.content or "").strip()
+        merged = (response.choices[0].message.content or "").strip()
+        if merged:
+            return merged
     except Exception as e:
-        print(f"Error generating index for {folder}: {sanitize_output(str(e))}")
-        return None
+        print(f"Warning: Could not merge partial indexes for {folder}: {sanitize_output(str(e))}")
+
+    # Fallback: return concatenated if merge fails
+    return combined
 
 
 def build_index_for_folder_with_retry(folder, client=None, max_retries=3):
     """Build index with retry logic for transient errors"""
-    for attempt in range(max_retries):
-        try:
-            return build_index_for_folder(folder, client)
-        except Exception as e:
-            wait_time = (attempt + 1) * 3
-            print(f"Error building index for {folder} (attempt {attempt + 1}/{max_retries}): {sanitize_output(str(e))}, waiting {wait_time}s...")
-            time.sleep(wait_time)
-    return None
+    def _log_retry(attempt, total, exc, wait_time):
+        print(f"Error building index for {folder} (attempt {attempt + 1}/{total}): {sanitize_output(str(exc))}, waiting {wait_time}s...")
+
+    @retry_with_backoff(max_retries=max_retries, delay_multiplier=3, on_retry=_log_retry, default=None)
+    def _try_build():
+        return build_index_for_folder(folder, client)
+
+    return _try_build()
 
 
 def save_index(folder, index_content, docs_root=None):
@@ -480,230 +636,207 @@ def update_indexes_if_needed():
 def commit_indexes_to_repo(content_type="indexes"):
     """
     Commit the .doc-index folder to the repository.
-    
+
     This persists the indexes/summaries so they don't need to be rebuilt on every run.
-    
+
     Args:
         content_type: What's being committed - "indexes" or "summaries" (for clearer logs)
-    
+
     Returns:
         bool: True if content was committed successfully, False otherwise
     """
     docs_root = get_docs_root().resolve()  # Resolve to absolute path
     index_path = docs_root / INDEX_DIR
-    
+
     if not index_path.exists():
         print(f"No {content_type} to commit")
         return False
-    
+
+    # Determine target directory and relative path for git operations
+    docs_subfolder = os.environ.get("DOCS_SUBFOLDER", "")
+    if docs_subfolder:
+        repo_root = docs_root.parent
+        target_dir = repo_root
+        index_relative_path = f"{docs_subfolder}/{INDEX_DIR}"
+    else:
+        repo_root = docs_root
+        target_dir = docs_root
+        index_relative_path = INDEX_DIR
+
     try:
-        # Get the original working directory
-        original_cwd = os.getcwd()
-        
-        # Need to be at repo root for git operations
-        # If we're in a subfolder (like docs/), go up
-        docs_subfolder = os.environ.get("DOCS_SUBFOLDER", "")
-        if docs_subfolder:
-            # We're in the docs subfolder, go to repo root
-            repo_root = docs_root.parent
-            os.chdir(str(repo_root))
-            index_relative_path = f"{docs_subfolder}/{INDEX_DIR}"
-            print(f"DEBUG: Changed to repo root: {repo_root}, index path: {index_relative_path}")
-        else:
-            # We're at repo root or in a separate docs repo
-            os.chdir(str(docs_root))
-            index_relative_path = INDEX_DIR
-            print(f"DEBUG: Staying in docs root: {docs_root}, index path: {index_relative_path}")
-        
-        # Check if there are any changes to commit
-        status_result = run_command_safe(
-            ["git", "status", "--porcelain", index_relative_path],
-            check=False
-        )
-        
-        if not status_result.stdout.strip():
-            print(f"No {content_type} changes to commit")
-            os.chdir(original_cwd)
-            return False
-        
-        # Check if the current branch is up-to-date with main before pushing
-        # This prevents older branches from overwriting newer indexes
-        base_branch = os.environ.get("DOCS_BASE_BRANCH", "main")
-        
-        # Fetch latest main to get accurate comparison
-        run_command_safe(["git", "fetch", "origin", base_branch], check=False)
-        
-        # Get the merge-base between current HEAD and origin/main
-        merge_base_result = run_command_safe(
-            ["git", "merge-base", "HEAD", f"origin/{base_branch}"],
-            check=False
-        )
-        
-        # Get the latest commit on origin/main
-        main_head_result = run_command_safe(
-            ["git", "rev-parse", f"origin/{base_branch}"],
-            check=False
-        )
-        
-        branch_up_to_date = True
-        if merge_base_result.returncode == 0 and main_head_result.returncode == 0:
-            merge_base = merge_base_result.stdout.strip()
-            main_head = main_head_result.stdout.strip()
-            branch_up_to_date = (merge_base == main_head)
-        
-        # Track what files to add (used both here and after branch switch)
-        files_to_add = []
-        add_all = False
-        
-        if branch_up_to_date:
-            # Branch is up-to-date, safe to push everything
-            add_all = True
-            run_command_safe(["git", "add", index_relative_path], check=True)
-        else:
-            # Branch is not up-to-date - be selective about what we push
-            print(f"⚠️  Branch is not up-to-date with {base_branch}")
-            
-            if content_type == "indexes":
-                # For folder indexes: skip entirely (could overwrite newer indexes on main)
-                print(f"   Skipping index push to avoid overwriting newer indexes on {base_branch}")
-                print(f"   Indexes will be used locally but not committed")
-                os.chdir(original_cwd)
-                return False
-            
-            # For summaries: only push if doc content matches main (safe)
-            print(f"   Checking which summaries are safe to push...")
-            
-            safe_summaries = get_safe_summaries_to_push(base_branch)
-            
-            if safe_summaries:
-                print(f"   Found {len(safe_summaries)} summaries safe to push (doc content matches main)")
-                # Track the files we're adding (for use after branch switch)
-                files_to_add = list(safe_summaries)
-                files_to_add.append(f"{index_relative_path}/{SUMMARIES_MANIFEST}")
-                
-                # Add only the safe summaries and the summaries manifest
-                for summary_path in safe_summaries:
-                    run_command_safe(["git", "add", summary_path], check=False)
-                # Also add the summaries manifest (stored at .doc-index/summaries_manifest.json)
-                summaries_manifest_path = f"{index_relative_path}/{SUMMARIES_MANIFEST}"
-                run_command_safe(["git", "add", summaries_manifest_path], check=False)
+        with working_directory(target_dir):
+            if docs_subfolder:
+                print("Changed to repo root for git operations")
             else:
-                print(f"   No summaries safe to push, skipping commit")
-                os.chdir(original_cwd)
+                print("Using docs root for git operations")
+
+            # Check if there are any changes to commit
+            status_result = run_command_safe(
+                ["git", "status", "--porcelain", index_relative_path],
+                check=False
+            )
+
+            if not status_result.stdout.strip():
+                print(f"No {content_type} changes to commit")
                 return False
-        
-        # Check if there's actually anything staged
-        staged_result = run_command_safe(
-            ["git", "diff", "--cached", "--name-only"],
-            check=False
-        )
-        if not staged_result.stdout.strip():
-            print("No changes staged for commit")
-            os.chdir(original_cwd)
-            return False
-        
-        # Commit the indexes
-        commit_msg = "chore: Update documentation semantic indexes\n\nAuto-generated by code-to-docs action"
-        run_command_safe(
-            ["git", "commit", "-m", commit_msg],
-            check=True
-        )
-        
-        # Push to the base/main branch so indexes are reusable across all PRs
-        # (base_branch already defined above for the up-to-date check)
-        
-        # Get current branch to restore later
-        current_branch_result = run_command_safe(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            check=True
-        )
-        current_branch = current_branch_result.stdout.strip()
-        
-        # If we're not on the base branch, we need to:
-        # 1. Stash or commit current changes
-        # 2. Checkout base branch
-        # 3. Cherry-pick or apply the index commit
-        # 4. Push to base branch
-        # 5. Return to original branch
-        
-        if current_branch != base_branch:
-            print(f"Switching to {base_branch} to push {content_type}...")
-            
-            # Save the .doc-index directory content BEFORE switching branches
-            # (because cherry-pick often fails and stash doesn't help since we already committed)
-            temp_dir = tempfile.mkdtemp()
-            index_full_path = Path(repo_root) / index_relative_path
-            temp_index_path = Path(temp_dir) / ".doc-index-backup"
-            if index_full_path.exists():
-                shutil.copytree(index_full_path, temp_index_path)
-            
-            # Stash any uncommitted changes
-            run_command_safe(["git", "stash", "--include-untracked"], check=False)
-            
-            # Checkout base branch (create or reset local branch from origin)
+
+            # Check if the current branch is up-to-date with main before pushing
+            # This prevents older branches from overwriting newer indexes
+            base_branch = os.environ.get("DOCS_BASE_BRANCH", "main")
+
+            # Fetch latest main to get accurate comparison
             run_command_safe(["git", "fetch", "origin", base_branch], check=False)
-            # Use -B to create/reset local branch from origin (handles case where local branch doesn't exist)
-            run_command_safe(["git", "checkout", "-B", base_branch, f"origin/{base_branch}"], check=True)
-            
-            # Restore our saved .doc-index directory (overwrites main's version with our updated version)
-            if temp_index_path.exists():
-                if index_full_path.exists():
-                    shutil.rmtree(index_full_path)
-                shutil.copytree(temp_index_path, index_full_path)
-            
-            # Add files - respect the same selective logic we used on PR branch
-            if add_all:
+
+            # Get the merge-base between current HEAD and origin/main
+            merge_base_result = run_command_safe(
+                ["git", "merge-base", "HEAD", f"origin/{base_branch}"],
+                check=False
+            )
+
+            # Get the latest commit on origin/main
+            main_head_result = run_command_safe(
+                ["git", "rev-parse", f"origin/{base_branch}"],
+                check=False
+            )
+
+            branch_up_to_date = True
+            if merge_base_result.returncode == 0 and main_head_result.returncode == 0:
+                merge_base = merge_base_result.stdout.strip()
+                main_head = main_head_result.stdout.strip()
+                branch_up_to_date = (merge_base == main_head)
+
+            # Track what files to add (used both here and after branch switch)
+            files_to_add = []
+            add_all = False
+
+            if branch_up_to_date:
+                # Branch is up-to-date, safe to push everything
+                add_all = True
                 run_command_safe(["git", "add", index_relative_path], check=True)
             else:
-                # Add only the specific files we determined were safe
-                for file_path in files_to_add:
-                    run_command_safe(["git", "add", file_path], check=False)
+                # Branch is not up-to-date - be selective about what we push
+                print(f"⚠️  Branch is not up-to-date with {base_branch}")
+
+                if "indexes" in content_type:
+                    # For folder indexes: skip entirely (could overwrite newer indexes on main)
+                    print(f"   Skipping index push to avoid overwriting newer indexes on {base_branch}")
+                    print(f"   Indexes will be used locally but not committed")
+                    if "summaries" not in content_type:
+                        return False
+                    # Combined push — indexes can't be pushed but try summaries below
+                    content_type = "summaries"  # update label to reflect what's actually being pushed
+
+                # For summaries: only push if doc content matches main (safe)
+                print(f"   Checking which summaries are safe to push...")
+
+                safe_summaries = get_safe_summaries_to_push(base_branch)
+
+                if safe_summaries:
+                    print(f"   Found {len(safe_summaries)} summaries safe to push (doc content matches main)")
+                    # Track the files we're adding (for use after branch switch)
+                    files_to_add = list(safe_summaries)
+                    files_to_add.append(f"{index_relative_path}/{SUMMARIES_MANIFEST}")
+
+                    # Add only the safe summaries and the summaries manifest
+                    for summary_path in safe_summaries:
+                        run_command_safe(["git", "add", summary_path], check=False)
+                    # Also add the summaries manifest (stored at .doc-index/summaries_manifest.json)
+                    summaries_manifest_path = f"{index_relative_path}/{SUMMARIES_MANIFEST}"
+                    run_command_safe(["git", "add", summaries_manifest_path], check=False)
+                else:
+                    print(f"   No summaries safe to push, skipping commit")
+                    return False
+
+            # Check if there's actually anything staged
+            staged_result = run_command_safe(
+                ["git", "diff", "--cached", "--name-only"],
+                check=False
+            )
+            if not staged_result.stdout.strip():
+                print("No changes staged for commit")
+                return False
+
+            # Commit the indexes
+            commit_msg = "chore: Update documentation semantic indexes\n\nAuto-generated by code-to-docs action"
             run_command_safe(
                 ["git", "commit", "-m", commit_msg],
-                check=False  # May fail if no changes
-            )
-            
-            # Clean up temp directory
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            
-            # Push to base branch
-            print(f"Pushing {content_type} to {base_branch}...")
-            run_command_safe(
-                ["git", "push", "origin", base_branch],
                 check=True
             )
-            
-            # Return to original branch
-            run_command_safe(["git", "checkout", current_branch], check=True)
-            
-            # Restore stashed changes (if any)
-            run_command_safe(["git", "stash", "pop"], check=False)
-            
-            print(f"✅ {content_type.capitalize()} committed and pushed to {base_branch}")
-        else:
-            # Already on base branch, just push
-            print(f"Pushing {content_type} to {base_branch}...")
-            run_command_safe(
-                ["git", "push", "origin", base_branch],
+
+            # Push to the base/main branch so indexes are reusable across all PRs
+
+            # Get current branch to restore later
+            current_branch_result = run_command_safe(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
                 check=True
             )
-            print(f"✅ {content_type.capitalize()} committed and pushed to {base_branch}")
-        os.chdir(original_cwd)
-        return True
-        
+            current_branch = current_branch_result.stdout.strip()
+
+            if current_branch != base_branch:
+                print(f"Switching to {base_branch} to push {content_type}...")
+
+                # Save the .doc-index directory content BEFORE switching branches
+                # (because cherry-pick often fails and stash doesn't help since we already committed)
+                temp_dir = tempfile.mkdtemp()
+                index_full_path = Path(repo_root) / index_relative_path
+                temp_index_path = Path(temp_dir) / ".doc-index-backup"
+                if index_full_path.exists():
+                    shutil.copytree(index_full_path, temp_index_path)
+
+                # Stash any uncommitted changes
+                run_command_safe(["git", "stash", "--include-untracked"], check=False)
+
+                try:
+                    # Checkout base branch (create or reset local branch from origin)
+                    run_command_safe(["git", "fetch", "origin", base_branch], check=False)
+                    run_command_safe(["git", "checkout", "-B", base_branch, f"origin/{base_branch}"], check=True)
+
+                    # Restore our saved .doc-index directory (overwrites main's version with our updated version)
+                    if temp_index_path.exists():
+                        if index_full_path.exists():
+                            shutil.rmtree(index_full_path)
+                        shutil.copytree(temp_index_path, index_full_path)
+
+                    # Add files - respect the same selective logic we used on PR branch
+                    if add_all:
+                        run_command_safe(["git", "add", index_relative_path], check=True)
+                    else:
+                        # Add only the specific files we determined were safe
+                        for file_path in files_to_add:
+                            run_command_safe(["git", "add", file_path], check=False)
+                    run_command_safe(
+                        ["git", "commit", "-m", commit_msg],
+                        check=False  # May fail if no changes
+                    )
+
+                    # Push to base branch
+                    print(f"Pushing {content_type} to {base_branch}...")
+                    run_command_safe(
+                        ["git", "push", "origin", base_branch],
+                        check=True
+                    )
+
+                    print(f"✅ {content_type.capitalize()} committed and pushed to {base_branch}")
+                finally:
+                    # Always return to original branch and restore stash
+                    run_command_safe(["git", "checkout", current_branch], check=False)
+                    run_command_safe(["git", "stash", "pop"], check=False)
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+            else:
+                # Already on base branch, just push
+                print(f"Pushing {content_type} to {base_branch}...")
+                run_command_safe(
+                    ["git", "push", "origin", base_branch],
+                    check=True
+                )
+                print(f"✅ {content_type.capitalize()} committed and pushed to {base_branch}")
+            return True
+
     except subprocess.CalledProcessError as e:
         print(f"Warning: Failed to commit {content_type}: {sanitize_output(str(e))}")
-        try:
-            os.chdir(original_cwd)
-        except:
-            pass
         return False
     except Exception as e:
         print(f"Warning: Error committing {content_type}: {sanitize_output(str(e))}")
-        try:
-            os.chdir(original_cwd)
-        except:
-            pass
         return False
 
 
@@ -749,13 +882,14 @@ def find_relevant_areas_from_indexes(diff, client=None):
             f"## Documentation Area: {folder}\n\n{indexes[folder]}"
             for folder in batch_folders
         ])
-        
-        prompt = f"""
+
+        # Build prompt template without diff to measure its length
+        prompt_template = f"""
 You are analyzing a code diff to determine which documentation areas might need updates.
 
 CODE DIFF:
 ```
-{diff[:10000]}
+{{DIFF_PLACEHOLDER}}
 ```
 
 DOCUMENTATION AREAS TO EVALUATE (batch {batch_num}/{total_batches}):
@@ -788,6 +922,9 @@ IMPORTANT: You MUST respond with a valid JSON array. No other text or explanatio
 
 You MUST output something. An empty response is not valid - output [] instead.
 """
+        diff_budget = get_max_context_chars() - len(prompt_template)
+        truncated_diff = truncate_diff(diff, diff_budget, label=f"area-relevance diff (batch {batch_num})")
+        prompt = prompt_template.replace("{DIFF_PLACEHOLDER}", truncated_diff)
         
         batch_relevant = _process_area_batch(client, prompt, batch_num, total_batches, batch_folders)
         if batch_relevant:
@@ -833,7 +970,7 @@ def _process_area_batch(client, prompt, batch_num, total_batches, batch_folders)
             except Exception as text_err:
                 print(f"Batch {batch_num}/{total_batches}: Could not get response text (attempt {attempt + 1})")
                 if attempt < max_retries - 1:
-                    time.sleep(2 * (attempt + 1))
+                    time.sleep(calc_backoff_delay(attempt, multiplier=2))
                     continue
                 else:
                     print(f"Batch {batch_num}/{total_batches}: Failed after retries, skipping batch")
@@ -842,7 +979,7 @@ def _process_area_batch(client, prompt, batch_num, total_batches, batch_folders)
             if not response_text or not response_text.strip():
                 if attempt < max_retries - 1:
                     print(f"Batch {batch_num}/{total_batches}: Empty response (attempt {attempt + 1}), retrying...")
-                    time.sleep(2 * (attempt + 1))
+                    time.sleep(calc_backoff_delay(attempt, multiplier=2))
                     continue
                 else:
                     # Treat empty response as "no relevant folders" - this is likely the AI's intent
@@ -878,20 +1015,22 @@ def _process_area_batch(client, prompt, batch_num, total_batches, batch_folders)
         except json.JSONDecodeError:
             if attempt < max_retries - 1:
                 print(f"Batch {batch_num}/{total_batches}: JSON parse error (attempt {attempt + 1}), retrying...")
-                time.sleep(2 * (attempt + 1))
+                time.sleep(calc_backoff_delay(attempt, multiplier=2))
                 continue
             print(f"Batch {batch_num}/{total_batches}: JSON parse failed, skipping batch")
             return []
         except Exception as e:
-            # Retry on any exception
+            # Context-window errors won't resolve on retry — fail immediately
+            if check_context_error(e):
+                return []
             if attempt < max_retries - 1:
-                wait_time = 3 * (attempt + 1)
+                wait_time = calc_backoff_delay(attempt, multiplier=3)
                 print(f"Batch {batch_num}/{total_batches}: Error (attempt {attempt + 1}), waiting {wait_time}s...")
                 time.sleep(wait_time)
                 continue
             print(f"Batch {batch_num}/{total_batches}: Failed after retries - {sanitize_output(str(e))}")
             return []
-    
+
     return []
 
 
@@ -945,61 +1084,51 @@ def fetch_indexes_from_main():
         bool: True if indexes/summaries were fetched, False otherwise
     """
     docs_root = get_docs_root().resolve()
-    index_dir = docs_root / INDEX_DIR
-    
+
+    # Determine target directory and relative path
+    docs_subfolder = os.environ.get("DOCS_SUBFOLDER", "")
+    if docs_subfolder:
+        target_dir = docs_root.parent
+        index_relative_path = f"{docs_subfolder}/{INDEX_DIR}"
+    else:
+        target_dir = docs_root
+        index_relative_path = INDEX_DIR
+
     try:
-        original_cwd = os.getcwd()
-        
-        # Determine paths
-        docs_subfolder = os.environ.get("DOCS_SUBFOLDER", "")
-        if docs_subfolder:
-            repo_root = docs_root.parent
-            os.chdir(str(repo_root))
-            index_relative_path = f"{docs_subfolder}/{INDEX_DIR}"
-        else:
-            os.chdir(str(docs_root))
-            index_relative_path = INDEX_DIR
-        
-        base_branch = os.environ.get("DOCS_BASE_BRANCH", "main")
-        
-        print(f"Checking for cached indexes/summaries on {base_branch} branch...")
-        
-        # Fetch the base branch
-        run_command_safe(["git", "fetch", "origin", base_branch], check=False)
-        
-        # Check if index directory exists on the base branch
-        check_result = run_command_safe(
-            ["git", "ls-tree", "-r", f"origin/{base_branch}", "--name-only"],
-            check=False
-        )
-        
-        if check_result.returncode != 0 or index_relative_path not in check_result.stdout:
-            print(f"No cached indexes/summaries found on {base_branch} branch")
-            os.chdir(original_cwd)
-            return False
-        
-        # Checkout the index directory from main (includes summaries)
-        print(f"Fetching indexes and summaries from {base_branch}...")
-        checkout_result = run_command_safe(
-            ["git", "checkout", f"origin/{base_branch}", "--", index_relative_path],
-            check=False
-        )
-        
-        if checkout_result.returncode == 0:
-            print(f"✅ Fetched indexes and summaries from {base_branch}")
-            os.chdir(original_cwd)
-            return True
-        else:
-            print(f"Could not fetch indexes/summaries from {base_branch}")
-            os.chdir(original_cwd)
-            return False
-            
+        with working_directory(target_dir):
+            base_branch = os.environ.get("DOCS_BASE_BRANCH", "main")
+
+            print(f"Checking for cached indexes/summaries on {base_branch} branch...")
+
+            # Fetch the base branch
+            run_command_safe(["git", "fetch", "origin", base_branch], check=False)
+
+            # Check if index directory exists on the base branch
+            check_result = run_command_safe(
+                ["git", "ls-tree", "-r", f"origin/{base_branch}", "--name-only"],
+                check=False
+            )
+
+            if check_result.returncode != 0 or index_relative_path not in check_result.stdout:
+                print(f"No cached indexes/summaries found on {base_branch} branch")
+                return False
+
+            # Checkout the index directory from main (includes summaries)
+            print(f"Fetching indexes and summaries from {base_branch}...")
+            checkout_result = run_command_safe(
+                ["git", "checkout", f"origin/{base_branch}", "--", index_relative_path],
+                check=False
+            )
+
+            if checkout_result.returncode == 0:
+                print(f"✅ Fetched indexes and summaries from {base_branch}")
+                return True
+            else:
+                print(f"Could not fetch indexes/summaries from {base_branch}")
+                return False
+
     except Exception as e:
         print(f"Warning: Error fetching indexes from main: {sanitize_output(str(e))}")
-        try:
-            os.chdir(original_cwd)
-        except:
-            pass
         return False
 
 
@@ -1094,7 +1223,7 @@ def load_cached_summary(file_path, docs_root=None):
     # Debug: show manifest state on first call
     manifest_files = manifest.get("files", {})
     if len(manifest_files) > 0 and not hasattr(load_cached_summary, '_debug_shown'):
-        print(f"DEBUG: Summaries manifest has {len(manifest_files)} entries")
+        print(f"Summaries manifest has {len(manifest_files)} entries")
         load_cached_summary._debug_shown = True
     
     # Check if we have a cached summary
@@ -1104,7 +1233,7 @@ def load_cached_summary(file_path, docs_root=None):
     # Check if the file has changed since the summary was generated
     try:
         current_hash = hash_file(Path(docs_root) / file_path)
-    except:
+    except Exception:
         current_hash = hash_file(file_path)
     
     stored_hash = manifest_files[file_key].get("hash")
@@ -1146,7 +1275,7 @@ def save_summary(file_path, summary, docs_root=None):
         # Calculate file hash
         try:
             file_hash = hash_file(Path(docs_root) / file_path)
-        except:
+        except Exception:
             file_hash = hash_file(file_path)
         
         manifest["files"][str(file_path)] = {

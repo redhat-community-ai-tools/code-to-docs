@@ -12,6 +12,7 @@ AI-powered GitHub Action that automatically analyzes code changes and updates do
 Comment on any Pull Request:
 - **`[review-docs]`** - Analyzes code changes, identifies relevant doc files, and posts a review comment with checkboxes to accept or reject each suggestion
 - **`[update-docs]`** - Creates a docs PR with only the accepted files from a previous review (or runs the full pipeline if no review exists)
+- **`[review-feature] PROJ-123`** - Runs `[review-docs]` and adds a **Spec vs Code Analysis** section that fetches the Jira ticket and its linked spec docs (Confluence, Google Docs), compares requirements against the PR code changes, and identifies covered, missing, and unplanned changes
 
 ### Recommended Workflow
 
@@ -28,11 +29,12 @@ config-ref.rst: only update the CLI usage example
 
 ## How It Works
 
-1. **Triggered by PR Comments** - When someone comments `[review-docs]` or `[update-docs]` on a Pull Request
+1. **Triggered by PR Comments** - When someone comments `[review-docs]`, `[update-docs]`, or `[review-feature]` on a Pull Request
 2. **Analyzes Code Changes** - Examines git diffs from your PRs using AI
 3. **Smart File Selection** - Identifies relevant documentation files automatically
 4. **Interactive Review** - Presents suggestions with checkboxes for user curation
 5. **Content Generation** - Generates updated documentation in AsciiDoc, Markdown, or reStructuredText
+6. **Spec vs Code Analysis** - Fetches Jira tickets and linked spec docs (Confluence, Google Docs) to identify gaps between requirements and the PR implementation
 
 ## Setup
 
@@ -57,8 +59,9 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       github.event.issue.pull_request && 
-      (contains(github.event.comment.body, '[review-docs]') || 
-       contains(github.event.comment.body, '[update-docs]'))
+      (contains(github.event.comment.body, '[review-docs]') ||
+       contains(github.event.comment.body, '[update-docs]') ||
+       contains(github.event.comment.body, '[review-feature]'))
     steps:
       - name: Get PR information
         id: pr_info
@@ -103,6 +106,11 @@ jobs:
           docs-subfolder: ${{ secrets.DOCS_SUBFOLDER }}
           comment-body: ${{ github.event.comment.body }}
           docs-base-branch: ${{ secrets.DOCS_BASE_BRANCH || 'main' }}
+          jira-url: ${{ secrets.JIRA_URL }}
+          jira-username: ${{ secrets.JIRA_USERNAME }}
+          jira-api-token: ${{ secrets.JIRA_API_TOKEN }}
+          google-sa-key: ${{ secrets.GOOGLE_SA_KEY }}
+          max-context-chars: ${{ secrets.MAX_CONTEXT_CHARS }}
 ```
 
 ### 2. Configure Secrets
@@ -118,6 +126,11 @@ Add these in **Settings → Secrets → Actions**:
 | `GH_PAT` | GitHub token with `repo` + `pull_requests:write` permissions |
 | `DOCS_SUBFOLDER` | _(Optional)_ Docs subfolder path (e.g., `docs`) |
 | `DOCS_BASE_BRANCH` | _(Optional)_ Base branch for docs PRs (default: `main`) |
+| `JIRA_URL` | _(Optional, for `[review-feature]`)_ Jira instance URL (e.g., `https://your-company.atlassian.net`) |
+| `JIRA_USERNAME` | _(Optional, for `[review-feature]`)_ Jira username/email |
+| `JIRA_API_TOKEN` | _(Optional, for `[review-feature]`)_ Jira API token ([create here](https://id.atlassian.com/manage-profile/security/api-tokens)) |
+| `GOOGLE_SA_KEY` | _(Optional, for `[review-feature]`)_ Google service account JSON key for fetching Google Docs. Docs must be shared with the service account email. |
+| `MAX_CONTEXT_CHARS` | _(Optional)_ Maximum characters for LLM prompt content (default: `400000`, ~100K tokens). Decrease for models with smaller context windows (e.g., `32000` for an 8K-token model). |
 
 ### Supported Model Backends
 
@@ -138,6 +151,16 @@ Any OpenAI-compatible API works. Common examples:
 - ⚡ **Auto-Update Mode** - Create PRs automatically
 - 📚 **Format Support** - AsciiDoc, Markdown, and reStructuredText (.rst)
 - 🚀 **Optimized Performance** - Semantic indexes and cached summaries reduce API calls
+- 🔍 **Spec vs Code Analysis** - Compare PR changes against Jira spec docs to find covered, missing, and unplanned changes
+
+## Spec Doc Locations for [review-feature]
+
+Spec docs can be linked from the Jira ticket description or comments. Supported formats:
+
+- **Google Docs** — requires a Google service account key (`GOOGLE_SA_KEY` secret). Docs must be shared with the service account email.
+- **Confluence** — fetched using the same Jira credentials (same Atlassian instance)
+
+Links that cannot be fetched automatically will be flagged in the review for manual review.
 
 ## Performance Optimization
 

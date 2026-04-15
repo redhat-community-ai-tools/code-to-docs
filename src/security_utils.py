@@ -29,15 +29,16 @@ def sanitize_output(text, sensitive_tokens=None):
     if sensitive_tokens is None:
         sensitive_tokens = []
     
-    # Add GH_TOKEN to sensitive list
-    gh_token = os.environ.get("GH_TOKEN", "")
-    if gh_token:
-        sensitive_tokens.append(gh_token)
-    
-    # Add MODEL_API_KEY to sensitive list
-    model_key = os.environ.get("MODEL_API_KEY", "")
-    if model_key:
-        sensitive_tokens.append(model_key)
+    # Add all known sensitive env vars to the list
+    for env_var in [
+        "GH_TOKEN",
+        "MODEL_API_KEY",
+        "JIRA_API_TOKEN",
+        "GOOGLE_SA_KEY",
+    ]:
+        val = os.environ.get(env_var, "")
+        if val:
+            sensitive_tokens.append(val)
     
     # Replace all sensitive tokens
     sanitized = text
