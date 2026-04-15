@@ -153,7 +153,11 @@ Any OpenAI-compatible API works. Common examples:
 - 🚀 **Optimized Performance** - Semantic indexes and cached summaries reduce API calls
 - 🔍 **Spec vs Code Analysis** - Compare PR changes against Jira spec docs to find covered, missing, and unplanned changes
 
-## Spec Doc Locations for [review-feature]
+## Feature Review with [review-feature]
+
+The `[review-feature]` command runs the full `[review-docs]` flow (identifying relevant doc files and suggesting updates) and adds a **Spec vs Code Analysis** section. It fetches the Jira ticket and its linked specification documents, extracts requirements, and compares them against the PR code changes to identify covered, missing, and unplanned changes.
+
+### Spec Doc Locations
 
 Spec docs can be linked from the Jira ticket description or comments. Supported formats:
 
@@ -161,6 +165,10 @@ Spec docs can be linked from the Jira ticket description or comments. Supported 
 - **Confluence** — fetched using the same Jira credentials (same Atlassian instance)
 
 Links that cannot be fetched automatically will be flagged in the review for manual review.
+
+### Important: Content Visibility
+
+The `[review-feature]` comment includes content from the Jira ticket and linked spec documents (requirements, descriptions, analysis). This comment will be visible to anyone with access to the PR. Ensure that your repository's visibility settings are appropriate for the sensitivity of your Jira and spec doc content.
 
 ## Performance Optimization
 
