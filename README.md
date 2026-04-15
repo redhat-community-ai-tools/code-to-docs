@@ -157,6 +157,8 @@ Any OpenAI-compatible API works. Common examples:
 
 The `[review-feature]` command runs the full `[review-docs]` flow (identifying relevant doc files and suggesting updates) and adds a **Spec vs Code Analysis** section. It fetches the Jira ticket and its linked specification documents, extracts requirements, and compares them against the PR code changes to identify covered, missing, and unplanned changes.
 
+[**See it in action**](https://redhat-community-ai-tools.github.io/code-to-docs/demo/review-feature)
+
 ### Spec Doc Locations
 
 Spec docs can be linked from the Jira ticket description or comments. Supported formats:
