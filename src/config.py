@@ -7,6 +7,7 @@ Runtime env vars (GH_TOKEN, PR_NUMBER, etc.) are still read where needed.
 
 import os
 import re
+from pathlib import Path
 
 import openai
 from openai import OpenAI
@@ -124,6 +125,115 @@ def truncate_diff(diff_text, max_chars, label="diff"):
     pct = len(result) * 100 // len(diff_text)
     print(f"Warning: Truncated {label} from {len(diff_text):,} to ~{len(result):,} chars ({pct}% retained, {included}/{total_files} files)")
     return result + suffix
+
+
+# =============================================================================
+# STYLE CONFIGURATION
+# =============================================================================
+
+_AUTO_DETECT_PATHS = [
+    ".code-to-docs/style.yml",
+    ".code-to-docs/style.yaml",
+    ".code-to-docs/style.md",
+]
+
+
+def load_style_config(config_path=None):
+    """
+    Load documentation style guidelines from a config file.
+
+    If *config_path* is given (or the STYLE_CONFIG_PATH env var is set),
+    that file is read directly.  Otherwise the function auto-detects the
+    first file that exists from the default search paths:
+        .code-to-docs/style.yml
+        .code-to-docs/style.yaml
+        .code-to-docs/style.md
+
+    YAML files are parsed and converted to a human-readable guideline
+    string.  Markdown / plain-text files are returned as-is.
+
+    Returns:
+        str: The style guidelines text, or "" if no config was found or
+             the file could not be read.
+    """
+    # Determine which file to load
+    if not config_path:
+        config_path = os.environ.get("STYLE_CONFIG_PATH", "")
+
+    if config_path:
+        resolved = Path(config_path)
+        if not resolved.is_file():
+            print(f"Warning: Style config not found at '{config_path}', skipping")
+            return ""
+    else:
+        # Auto-detect
+        resolved = None
+        for candidate in _AUTO_DETECT_PATHS:
+            p = Path(candidate)
+            if p.is_file():
+                resolved = p
+                break
+        if resolved is None:
+            return ""
+
+    config_path_str = str(resolved)
+    print(f"Loading style config from: {config_path_str}")
+
+    try:
+        raw = resolved.read_text(encoding="utf-8").strip()
+    except Exception as e:
+        print(f"Warning: Could not read style config '{config_path_str}': {e}")
+        return ""
+
+    if not raw:
+        print(f"Warning: Style config '{config_path_str}' is empty, skipping")
+        return ""
+
+    # YAML files → convert to readable guidelines
+    if config_path_str.endswith((".yml", ".yaml")):
+        return _yaml_to_guidelines(raw, config_path_str)
+
+    # Markdown / plain-text → use as-is
+    return raw
+
+
+def _yaml_to_guidelines(raw_yaml, path):
+    """
+    Parse a YAML style config and return a human-readable guidelines string.
+
+    If PyYAML is not installed or the file is invalid YAML, the raw text
+    is returned as-is so the LLM can still interpret it.
+    """
+    try:
+        import yaml  # optional dependency
+    except ImportError:
+        print("Warning: PyYAML not installed, using raw YAML content as guidelines")
+        return raw_yaml
+
+    try:
+        data = yaml.safe_load(raw_yaml)
+    except yaml.YAMLError as e:
+        print(f"Warning: Invalid YAML in '{path}': {e}")
+        return raw_yaml
+
+    if not isinstance(data, dict):
+        # Could be a plain string or list — return raw
+        return raw_yaml
+
+    lines = []
+    for key, value in data.items():
+        if isinstance(value, dict):
+            lines.append(f"{key}:")
+            for sub_key, sub_value in value.items():
+                lines.append(f"  - {sub_key}: {sub_value}")
+        elif isinstance(value, list):
+            lines.append(f"{key}:")
+            for item in value:
+                lines.append(f"  - {item}")
+        else:
+            lines.append(f"- {key}: {value}")
+
+    return "\n".join(lines)
 
 
 def check_context_error(e):
