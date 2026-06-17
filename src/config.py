@@ -192,58 +192,7 @@ def load_style_config(config_path=None):
 
     print(f"Loaded style config ({len(raw):,} chars)")
 
-    # YAML files → convert to readable guidelines
-    if config_path_str.endswith((".yml", ".yaml")):
-        return _yaml_to_guidelines(raw, config_path_str)
-
-    # Markdown / plain-text → use as-is
     return raw
-
-
-def _yaml_to_guidelines(raw_yaml, path):
-    """
-    Parse a YAML style config and return a human-readable guidelines string.
-
-    If PyYAML is not installed or the file is invalid YAML, the raw text
-    is returned as-is so the LLM can still interpret it.
-    """
-    try:
-        import yaml  # optional dependency
-    except ImportError:
-        print("Warning: PyYAML not installed, using raw YAML content as guidelines")
-        return raw_yaml
-
-    try:
-        data = yaml.safe_load(raw_yaml)
-    except yaml.YAMLError as e:
-        print(f"Warning: Invalid YAML in '{path}': {e}")
-        return raw_yaml
-
-    if not isinstance(data, dict):
-        # Could be a plain string or list — return raw
-        return raw_yaml
-
-    lines = []
-    _format_yaml_value(data, lines, indent=0)
-    return "\n".join(lines)
-
-
-def _format_yaml_value(data, lines, indent=0):
-    """Recursively format a parsed YAML structure into human-readable lines."""
-    prefix = "  " * indent
-    if isinstance(data, dict):
-        for key, value in data.items():
-            if isinstance(value, (dict, list)):
-                lines.append(f"{prefix}{key}:")
-                _format_yaml_value(value, lines, indent + 1)
-            else:
-                lines.append(f"{prefix}- {key}: {value}")
-    elif isinstance(data, list):
-        for item in data:
-            if isinstance(item, (dict, list)):
-                _format_yaml_value(item, lines, indent)
-            else:
-                lines.append(f"{prefix}- {item}")
 
 
 def check_context_error(e):

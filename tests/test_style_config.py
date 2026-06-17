@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 
-from config import load_style_config, _yaml_to_guidelines, _MAX_STYLE_CONFIG_CHARS
+from config import load_style_config, _MAX_STYLE_CONFIG_CHARS
 from generation import ask_ai_for_updated_content, generate_updates_parallel
 
 
@@ -37,10 +37,8 @@ class TestLoadStyleConfig:
         config_file.write_text("voice: active\nheading_style: sentence_case\n", encoding="utf-8")
 
         result = load_style_config()
-        assert "voice" in result
-        assert "active" in result
-        assert "heading_style" in result
-        assert "sentence_case" in result
+        # Raw YAML content is returned as-is
+        assert result == "voice: active\nheading_style: sentence_case"
 
     def test_loads_markdown_config(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
@@ -113,7 +111,7 @@ class TestLoadStyleConfig:
         (config_dir / "style.md").write_text("Use passive voice.\n", encoding="utf-8")
 
         result = load_style_config()
-        assert "active" in result
+        assert result == "voice: active"
 
     def test_yaml_with_nested_config(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
@@ -130,8 +128,9 @@ class TestLoadStyleConfig:
         (config_dir / "style.yml").write_text(yaml_content, encoding="utf-8")
 
         result = load_style_config()
-        assert "headings" in result
-        assert "sentence_case" in result
+        # Raw YAML content is returned as-is
+        assert result == yaml_content.strip()
+        assert "headings: sentence_case" in result
         assert "No passive voice" in result
         assert "Keep paragraphs short" in result
 
@@ -158,49 +157,6 @@ class TestLoadStyleConfig:
         assert len(result) <= _MAX_STYLE_CONFIG_CHARS
         captured = capsys.readouterr()
         assert "truncated" in captured.out.lower()
-
-
-# ── _yaml_to_guidelines ────────────────────────────────────────────────────
-
-
-class TestYamlToGuidelines:
-    def test_flat_keys(self):
-        raw = "voice: active\ntone: professional\n"
-        result = _yaml_to_guidelines(raw, "style.yml")
-        assert "voice: active" in result
-        assert "tone: professional" in result
-
-    def test_nested_dict(self):
-        raw = "formatting:\n  headings: title_case\n"
-        result = _yaml_to_guidelines(raw, "style.yml")
-        assert "formatting:" in result
-        assert "headings: title_case" in result
-
-    def test_list_values(self):
-        raw = "rules:\n  - Be concise\n  - Use active voice\n"
-        result = _yaml_to_guidelines(raw, "style.yml")
-        assert "Be concise" in result
-        assert "Use active voice" in result
-
-    def test_returns_raw_on_invalid_yaml(self):
-        raw = "this: is: not: valid: yaml: {{{"
-        result = _yaml_to_guidelines(raw, "style.yml")
-        # Should return raw content when parsing fails
-        assert isinstance(result, str)
-        assert len(result) > 0
-
-    def test_returns_raw_for_non_dict(self):
-        raw = "just a plain string"
-        result = _yaml_to_guidelines(raw, "style.yml")
-        assert result == "just a plain string"
-
-    def test_deeply_nested_dict(self):
-        raw = "formatting:\n  headings:\n    style: sentence_case\n    capitalize: true\n"
-        result = _yaml_to_guidelines(raw, "style.yml")
-        assert "formatting:" in result
-        assert "headings:" in result
-        assert "style: sentence_case" in result
-        assert "capitalize: True" in result
 
 
 # ── prompt injection ────────────────────────────────────────────────────────
