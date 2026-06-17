@@ -166,7 +166,7 @@ def load_style_config(config_path=None):
         resolved = None
         for candidate in _AUTO_DETECT_PATHS:
             p = Path(candidate)
-            if p.is_file():
+            if p.is_file() and validate_file_path(str(p)):
                 resolved = p
                 break
         if resolved is None:
@@ -188,7 +188,7 @@ def load_style_config(config_path=None):
     # Cap size to prevent style config from consuming the entire context budget
     if len(raw) > _MAX_STYLE_CONFIG_CHARS:
         print(f"Warning: Style config '{config_path_str}' truncated from {len(raw):,} to {_MAX_STYLE_CONFIG_CHARS:,} chars")
-        raw = raw[:_MAX_STYLE_CONFIG_CHARS]
+        raw = raw[:_MAX_STYLE_CONFIG_CHARS].rsplit('\n', 1)[0]
 
     print(f"Loaded style config ({len(raw):,} chars)")
 

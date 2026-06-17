@@ -155,7 +155,14 @@ Add these in **Settings → Secrets → Actions**:
 | `JIRA_API_TOKEN` | _(Optional, for `[review-feature]`)_ Jira API token ([create here](https://id.atlassian.com/manage-profile/security/api-tokens)) |
 | `GOOGLE_SA_KEY` | _(Optional, for `[review-feature]`)_ Google service account JSON key for fetching Google Docs. Docs must be shared with the service account email. |
 | `MAX_CONTEXT_CHARS` | _(Optional)_ Maximum characters for LLM prompt content (default: `400000`, ~100K tokens). Decrease for models with smaller context windows (e.g., `32000` for an 8K-token model). |
-| `style-config-path` | _(Optional, action input)_ Path to a style configuration file (`.yml` or `.md`) containing documentation style guidelines. If not set, auto-detects `.code-to-docs/style.yml` or `.code-to-docs/style.md`. |
+
+### 3. Optional Action Inputs
+
+These are set as `with:` parameters in the workflow step (not as secrets):
+
+| Input | Description |
+|-------|-------------|
+| `style-config-path` | _(Optional)_ Path to a style configuration file (`.yml` or `.md`) containing documentation style guidelines. If not set, auto-detects `.code-to-docs/style.yml` or `.code-to-docs/style.md`. |
 
 ### Supported Model Backends
 
