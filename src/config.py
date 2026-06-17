@@ -12,7 +12,7 @@ from pathlib import Path
 import openai
 from openai import OpenAI
 
-from security_utils import validate_file_path
+from security_utils import sanitize_output, validate_file_path
 
 
 def get_client():
@@ -157,28 +157,28 @@ def load_style_config(config_path=None):
         if not config_path.endswith(_ALLOWED_STYLE_EXTENSIONS):
             print(f"Warning: Style config must be a .yml, .yaml, or .md file, got '{config_path}', skipping")
             return ""
-        resolved = Path(config_path)
-        if not resolved.is_file():
+        config_file = Path(config_path)
+        if not config_file.is_file():
             print(f"Warning: Style config not found at '{config_path}', skipping")
             return ""
     else:
         # Auto-detect
-        resolved = None
+        config_file = None
         for candidate in _AUTO_DETECT_PATHS:
             p = Path(candidate)
             if p.is_file() and validate_file_path(str(p)):
-                resolved = p
+                config_file = p
                 break
-        if resolved is None:
+        if config_file is None:
             return ""
 
-    config_path_str = str(resolved)
+    config_path_str = str(config_file)
     print(f"Loading style config from: {config_path_str}")
 
     try:
-        raw = resolved.read_text(encoding="utf-8").strip()
+        raw = config_file.read_text(encoding="utf-8").strip()
     except Exception as e:
-        print(f"Warning: Could not read style config '{config_path_str}': {e}")
+        print(f"Warning: Could not read style config '{config_path_str}': {sanitize_output(str(e))}")
         return ""
 
     if not raw:
