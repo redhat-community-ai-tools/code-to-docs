@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 
-from config import load_style_config, _yaml_to_guidelines
+from config import load_style_config, _yaml_to_guidelines, _MAX_STYLE_CONFIG_CHARS
 from generation import ask_ai_for_updated_content
 
 
@@ -135,6 +135,30 @@ class TestLoadStyleConfig:
         assert "No passive voice" in result
         assert "Keep paragraphs short" in result
 
+    def test_rejects_unsupported_extension(self, tmp_path, monkeypatch, capsys):
+        """Only .yml, .yaml, and .md extensions are accepted for explicit paths."""
+        monkeypatch.chdir(tmp_path)
+        txt_file = tmp_path / "style.txt"
+        txt_file.write_text("some content", encoding="utf-8")
+
+        result = load_style_config(config_path=str(txt_file))
+        assert result == ""
+        captured = capsys.readouterr()
+        assert ".yml, .yaml, or .md" in captured.out
+
+    def test_large_config_truncated(self, tmp_path, monkeypatch, capsys):
+        """Style configs exceeding the size cap are truncated."""
+        monkeypatch.chdir(tmp_path)
+        config_dir = tmp_path / ".code-to-docs"
+        config_dir.mkdir()
+        large_content = "# Style\n" + "x" * (_MAX_STYLE_CONFIG_CHARS + 1000)
+        (config_dir / "style.md").write_text(large_content, encoding="utf-8")
+
+        result = load_style_config()
+        assert len(result) <= _MAX_STYLE_CONFIG_CHARS
+        captured = capsys.readouterr()
+        assert "truncated" in captured.out.lower()
+
 
 # ── _yaml_to_guidelines ────────────────────────────────────────────────────
 
@@ -169,6 +193,14 @@ class TestYamlToGuidelines:
         raw = "just a plain string"
         result = _yaml_to_guidelines(raw, "style.yml")
         assert result == "just a plain string"
+
+    def test_deeply_nested_dict(self):
+        raw = "formatting:\n  headings:\n    style: sentence_case\n    capitalize: true\n"
+        result = _yaml_to_guidelines(raw, "style.yml")
+        assert "formatting:" in result
+        assert "headings:" in result
+        assert "style: sentence_case" in result
+        assert "capitalize: True" in result
 
 
 # ── prompt injection ────────────────────────────────────────────────────────

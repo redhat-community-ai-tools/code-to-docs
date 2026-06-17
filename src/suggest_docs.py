@@ -56,9 +56,6 @@ def main():
     source = "MAX_CONTEXT_CHARS" if raw else "default"
     print(f"Context budget: {budget:,} chars (from {source})")
 
-    # Load persistent style guidelines (if configured)
-    style_guidelines = load_style_config()
-
     # Handle --build-index mode
     if args.build_index:
         print("Building documentation indexes...")
@@ -68,6 +65,9 @@ def main():
         result = build_all_indexes(force=True)
         print(f"Index build complete: {result['status']}")
         return
+
+    # Load persistent style guidelines (if configured)
+    style_guidelines = load_style_config()
 
     # Detect which command was used
     comment_body = os.environ.get("COMMENT_BODY", "")

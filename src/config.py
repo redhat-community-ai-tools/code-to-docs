@@ -140,6 +140,10 @@ _AUTO_DETECT_PATHS = [
 ]
 
 
+_ALLOWED_STYLE_EXTENSIONS = (".yml", ".yaml", ".md")
+_MAX_STYLE_CONFIG_CHARS = 10_000
+
+
 def load_style_config(config_path=None):
     """Load documentation style guidelines from a config file."""
     # Determine which file to load
@@ -149,6 +153,9 @@ def load_style_config(config_path=None):
     if config_path:
         if not validate_file_path(config_path):
             print(f"Warning: Style config path rejected by security check: '{config_path}', skipping")
+            return ""
+        if not config_path.endswith(_ALLOWED_STYLE_EXTENSIONS):
+            print(f"Warning: Style config must be a .yml, .yaml, or .md file, got '{config_path}', skipping")
             return ""
         resolved = Path(config_path)
         if not resolved.is_file():
@@ -177,6 +184,13 @@ def load_style_config(config_path=None):
     if not raw:
         print(f"Warning: Style config '{config_path_str}' is empty, skipping")
         return ""
+
+    # Cap size to prevent style config from consuming the entire context budget
+    if len(raw) > _MAX_STYLE_CONFIG_CHARS:
+        print(f"Warning: Style config '{config_path_str}' truncated from {len(raw):,} to {_MAX_STYLE_CONFIG_CHARS:,} chars")
+        raw = raw[:_MAX_STYLE_CONFIG_CHARS]
+
+    print(f"Loaded style config ({len(raw):,} chars)")
 
     # YAML files → convert to readable guidelines
     if config_path_str.endswith((".yml", ".yaml")):
@@ -210,19 +224,26 @@ def _yaml_to_guidelines(raw_yaml, path):
         return raw_yaml
 
     lines = []
-    for key, value in data.items():
-        if isinstance(value, dict):
-            lines.append(f"{key}:")
-            for sub_key, sub_value in value.items():
-                lines.append(f"  - {sub_key}: {sub_value}")
-        elif isinstance(value, list):
-            lines.append(f"{key}:")
-            for item in value:
-                lines.append(f"  - {item}")
-        else:
-            lines.append(f"- {key}: {value}")
-
+    _format_yaml_value(data, lines, indent=0)
     return "\n".join(lines)
+
+
+def _format_yaml_value(data, lines, indent=0):
+    """Recursively format a parsed YAML structure into human-readable lines."""
+    prefix = "  " * indent
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if isinstance(value, (dict, list)):
+                lines.append(f"{prefix}{key}:")
+                _format_yaml_value(value, lines, indent + 1)
+            else:
+                lines.append(f"{prefix}- {key}: {value}")
+    elif isinstance(data, list):
+        for item in data:
+            if isinstance(item, (dict, list)):
+                _format_yaml_value(item, lines, indent)
+            else:
+                lines.append(f"{prefix}- {item}")
 
 
 def check_context_error(e):
