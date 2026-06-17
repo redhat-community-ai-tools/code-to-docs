@@ -70,7 +70,7 @@ inputs:
     required: false
     default: '400000'
   style-config-path:
-    description: 'Path to a style configuration file (.yml or .md) containing documentation style guidelines. If not set, auto-detects .code-to-docs/style.yml or .code-to-docs/style.md in the repository root.'
+    description: 'Path to a Markdown style configuration file (.md) containing documentation style guidelines. If not set, auto-detects .code-to-docs/style.md in the repository root.'
     required: false
     default: ''
 

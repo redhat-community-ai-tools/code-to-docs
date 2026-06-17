@@ -29,17 +29,6 @@ class TestLoadStyleConfig:
         result = load_style_config()
         assert result == ""
 
-    def test_loads_yaml_config(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-        config_dir = tmp_path / ".code-to-docs"
-        config_dir.mkdir()
-        config_file = config_dir / "style.yml"
-        config_file.write_text("voice: active\nheading_style: sentence_case\n", encoding="utf-8")
-
-        result = load_style_config()
-        # Raw YAML content is returned as-is
-        assert result == "voice: active\nheading_style: sentence_case"
-
     def test_loads_markdown_config(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         config_dir = tmp_path / ".code-to-docs"
@@ -56,7 +45,7 @@ class TestLoadStyleConfig:
         # Create auto-detect file
         config_dir = tmp_path / ".code-to-docs"
         config_dir.mkdir()
-        (config_dir / "style.yml").write_text("voice: passive\n", encoding="utf-8")
+        (config_dir / "style.md").write_text("Use passive voice.\n", encoding="utf-8")
 
         # Create explicit file
         custom = tmp_path / "custom-style.md"
@@ -77,7 +66,7 @@ class TestLoadStyleConfig:
 
     def test_missing_explicit_path_warns(self, tmp_path, monkeypatch, capsys):
         monkeypatch.chdir(tmp_path)
-        missing = str(tmp_path / "nonexistent" / "style.yml")
+        missing = str(tmp_path / "nonexistent" / "style.md")
         result = load_style_config(config_path=missing)
         assert result == ""
         captured = capsys.readouterr()
@@ -95,55 +84,32 @@ class TestLoadStyleConfig:
         monkeypatch.chdir(tmp_path)
         config_dir = tmp_path / ".code-to-docs"
         config_dir.mkdir()
-        (config_dir / "style.yml").write_text("", encoding="utf-8")
+        (config_dir / "style.md").write_text("", encoding="utf-8")
 
         result = load_style_config()
         assert result == ""
         captured = capsys.readouterr()
         assert "empty" in captured.out.lower()
 
-    def test_yaml_auto_detect_order(self, tmp_path, monkeypatch):
-        """style.yml is preferred over style.md when both exist."""
-        monkeypatch.chdir(tmp_path)
-        config_dir = tmp_path / ".code-to-docs"
-        config_dir.mkdir()
-        (config_dir / "style.yml").write_text("voice: active\n", encoding="utf-8")
-        (config_dir / "style.md").write_text("Use passive voice.\n", encoding="utf-8")
-
-        result = load_style_config()
-        assert result == "voice: active"
-
-    def test_yaml_with_nested_config(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-        config_dir = tmp_path / ".code-to-docs"
-        config_dir.mkdir()
-        yaml_content = (
-            "formatting:\n"
-            "  headings: sentence_case\n"
-            "  lists: use_dashes\n"
-            "rules:\n"
-            "  - No passive voice\n"
-            "  - Keep paragraphs short\n"
-        )
-        (config_dir / "style.yml").write_text(yaml_content, encoding="utf-8")
-
-        result = load_style_config()
-        # Raw YAML content is returned as-is
-        assert result == yaml_content.strip()
-        assert "headings: sentence_case" in result
-        assert "No passive voice" in result
-        assert "Keep paragraphs short" in result
-
     def test_rejects_unsupported_extension(self, tmp_path, monkeypatch, capsys):
-        """Only .yml, .yaml, and .md extensions are accepted for explicit paths."""
+        """Only .md extension is accepted for explicit paths; .yml and .txt are rejected."""
         monkeypatch.chdir(tmp_path)
+
+        # .txt should be rejected
         txt_file = tmp_path / "style.txt"
         txt_file.write_text("some content", encoding="utf-8")
-
         result = load_style_config(config_path=str(txt_file))
         assert result == ""
         captured = capsys.readouterr()
-        assert ".yml, .yaml, or .md" in captured.out
+        assert ".md" in captured.out
+
+        # .yml should also be rejected
+        yml_file = tmp_path / "style.yml"
+        yml_file.write_text("voice: active\n", encoding="utf-8")
+        result = load_style_config(config_path=str(yml_file))
+        assert result == ""
+        captured = capsys.readouterr()
+        assert ".md" in captured.out
 
     def test_large_config_truncated(self, tmp_path, monkeypatch, capsys):
         """Style configs exceeding the size cap are truncated."""

@@ -3,6 +3,8 @@ Centralized configuration for code-to-docs GitHub Action.
 
 All environment variable access for configuration lives here.
 Runtime env vars (GH_TOKEN, PR_NUMBER, etc.) are still read where needed.
+Also handles loading persistent style guidelines from .code-to-docs/style.md
+or a user-specified STYLE_CONFIG_PATH.
 """
 
 import os
@@ -134,13 +136,11 @@ def truncate_diff(diff_text, max_chars, label="diff"):
 # =============================================================================
 
 _AUTO_DETECT_PATHS = [
-    ".code-to-docs/style.yml",
-    ".code-to-docs/style.yaml",
     ".code-to-docs/style.md",
 ]
 
 
-_ALLOWED_STYLE_EXTENSIONS = (".yml", ".yaml", ".md")
+_ALLOWED_STYLE_EXTENSIONS = (".md",)
 _MAX_STYLE_CONFIG_CHARS = 10_000
 
 
@@ -155,7 +155,7 @@ def load_style_config(config_path=None):
             print(f"Warning: Style config path rejected by security check: '{config_path}', skipping")
             return ""
         if not config_path.endswith(_ALLOWED_STYLE_EXTENSIONS):
-            print(f"Warning: Style config must be a .yml, .yaml, or .md file, got '{config_path}', skipping")
+            print(f"Warning: Style config must be a .md file, got '{config_path}', skipping")
             return ""
         config_file = Path(config_path)
         if not config_file.is_file():
