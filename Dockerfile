@@ -17,7 +17,7 @@ RUN npm install -g @googleworkspace/cli
 RUN pip install --no-cache-dir -U uv
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -U openai mcp mcp-atlassian
+RUN pip install --no-cache-dir -U openai mcp mcp-atlassian pyyaml
 
 # Set up working directory
 WORKDIR /app

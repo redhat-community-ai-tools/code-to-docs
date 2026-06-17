@@ -27,6 +27,30 @@ You can guide how the AI generates doc updates by adding instructions in your `[
 config-ref.rst: only update the CLI usage example
 ```
 
+## Persistent Style Guidelines
+
+You can define repository-level documentation style rules that are automatically applied to every AI-generated update. Create one of the following files in your repository root:
+
+- **`.code-to-docs/style.yml`** — Structured YAML format, automatically converted to human-readable guidelines
+- **`.code-to-docs/style.yaml`** — Same as above (alternate extension)
+- **`.code-to-docs/style.md`** — Freeform Markdown/prose, passed to the LLM as-is
+
+The action auto-detects these files in the order listed above. To use a custom path instead, set the `style-config-path` action input.
+
+**Example `.code-to-docs/style.yml`:**
+```yaml
+voice: active
+tone: professional
+formatting:
+  headings: sentence_case
+  lists: use_dashes
+rules:
+  - Keep paragraphs short
+  - Use present tense
+```
+
+Per-comment instructions (`[update-docs] keep changes minimal`) continue to work alongside the persistent config, appearing as additional guidance after the style guidelines.
+
 ## How It Works
 
 1. **Triggered by PR Comments** - When someone comments `[review-docs]`, `[update-docs]`, or `[review-feature]` on a Pull Request
@@ -131,6 +155,7 @@ Add these in **Settings → Secrets → Actions**:
 | `JIRA_API_TOKEN` | _(Optional, for `[review-feature]`)_ Jira API token ([create here](https://id.atlassian.com/manage-profile/security/api-tokens)) |
 | `GOOGLE_SA_KEY` | _(Optional, for `[review-feature]`)_ Google service account JSON key for fetching Google Docs. Docs must be shared with the service account email. |
 | `MAX_CONTEXT_CHARS` | _(Optional)_ Maximum characters for LLM prompt content (default: `400000`, ~100K tokens). Decrease for models with smaller context windows (e.g., `32000` for an 8K-token model). |
+| `style-config-path` | _(Optional, action input)_ Path to a style configuration file (`.yml` or `.md`) containing documentation style guidelines. If not set, auto-detects `.code-to-docs/style.yml` or `.code-to-docs/style.md`. |
 
 ### Supported Model Backends
 

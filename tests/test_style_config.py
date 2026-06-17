@@ -79,10 +79,19 @@ class TestLoadStyleConfig:
 
     def test_missing_explicit_path_warns(self, tmp_path, monkeypatch, capsys):
         monkeypatch.chdir(tmp_path)
-        result = load_style_config(config_path="/nonexistent/style.yml")
+        missing = str(tmp_path / "nonexistent" / "style.yml")
+        result = load_style_config(config_path=missing)
         assert result == ""
         captured = capsys.readouterr()
         assert "Warning" in captured.out
+
+    def test_path_traversal_rejected(self, tmp_path, monkeypatch, capsys):
+        """Paths outside the working directory are rejected by validate_file_path."""
+        monkeypatch.chdir(tmp_path)
+        result = load_style_config(config_path="/etc/passwd")
+        assert result == ""
+        captured = capsys.readouterr()
+        assert "security check" in captured.out.lower() or "rejected" in captured.out.lower()
 
     def test_empty_config_returns_empty(self, tmp_path, monkeypatch, capsys):
         monkeypatch.chdir(tmp_path)

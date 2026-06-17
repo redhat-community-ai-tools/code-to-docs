@@ -12,6 +12,8 @@ from pathlib import Path
 import openai
 from openai import OpenAI
 
+from security_utils import validate_file_path
+
 
 def get_client():
     """Get the shared OpenAI-compatible client."""
@@ -139,28 +141,15 @@ _AUTO_DETECT_PATHS = [
 
 
 def load_style_config(config_path=None):
-    """
-    Load documentation style guidelines from a config file.
-
-    If *config_path* is given (or the STYLE_CONFIG_PATH env var is set),
-    that file is read directly.  Otherwise the function auto-detects the
-    first file that exists from the default search paths:
-        .code-to-docs/style.yml
-        .code-to-docs/style.yaml
-        .code-to-docs/style.md
-
-    YAML files are parsed and converted to a human-readable guideline
-    string.  Markdown / plain-text files are returned as-is.
-
-    Returns:
-        str: The style guidelines text, or "" if no config was found or
-             the file could not be read.
-    """
+    """Load documentation style guidelines from a config file."""
     # Determine which file to load
     if not config_path:
         config_path = os.environ.get("STYLE_CONFIG_PATH", "")
 
     if config_path:
+        if not validate_file_path(config_path):
+            print(f"Warning: Style config path rejected by security check: '{config_path}', skipping")
+            return ""
         resolved = Path(config_path)
         if not resolved.is_file():
             print(f"Warning: Style config not found at '{config_path}', skipping")
