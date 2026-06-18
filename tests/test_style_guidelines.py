@@ -7,7 +7,7 @@ import threading
 import pytest
 from unittest.mock import patch, MagicMock
 
-from config import get_style_guidelines, _MAX_STYLE_GUIDELINES_CHARS
+from config import get_style_guidelines, _MAX_STYLE_GUIDELINES_CHARS, _is_github_host
 from generation import ask_ai_for_updated_content
 
 
@@ -76,12 +76,21 @@ class TestGetStyleGuidelines:
         assert result is not None
         assert "Use active voice" in result
 
-    def test_reads_url_from_env(self, style_server, monkeypatch):
-        url, _ = style_server
-        monkeypatch.setenv("STYLE_GUIDELINES_URL", url)
-        result = get_style_guidelines()
-        assert result is not None
-        assert "Use active voice" in result
+    def test_reads_url_from_env(self, monkeypatch):
+        """Env-var URL is read; must be https (http is rejected)."""
+        captured_req = {}
+
+        def mock_urlopen(req, timeout=None):
+            captured_req["url"] = req.full_url
+            raise urllib.error.URLError("mocked")
+
+        import urllib.error
+        monkeypatch.setenv("STYLE_GUIDELINES_URL", "https://example.com/style.md")
+        with patch("config.urllib.request.urlopen", side_effect=mock_urlopen):
+            result = get_style_guidelines()
+        # The function read the env var and attempted to fetch the https URL
+        assert captured_req.get("url") == "https://example.com/style.md"
+        assert result is None  # mocked error, but URL was attempted
 
     def test_returns_none_on_network_error(self):
         result = get_style_guidelines(url="http://127.0.0.1:1/nonexistent")
@@ -90,6 +99,25 @@ class TestGetStyleGuidelines:
     def test_returns_none_on_bad_url(self):
         result = get_style_guidelines(url="not-a-valid-url")
         assert result is None
+
+    def test_rejects_file_scheme(self):
+        """file:// URLs are blocked to prevent SSRF."""
+        result = get_style_guidelines(url="file:///etc/passwd")
+        assert result is None
+
+    def test_rejects_http_from_env(self, style_server, monkeypatch):
+        """http:// URLs from the env var (action input) are rejected."""
+        url, _ = style_server
+        monkeypatch.setenv("STYLE_GUIDELINES_URL", url)
+        result = get_style_guidelines()  # reads from env — must be https
+        assert result is None
+
+    def test_allows_http_via_param(self, style_server):
+        """http:// URLs via the url= param are allowed (for testing)."""
+        url, _ = style_server
+        result = get_style_guidelines(url=url)
+        assert result is not None
+        assert "Use active voice" in result
 
     def test_returns_none_on_http_error(self, style_server):
         url, _ = style_server
@@ -124,8 +152,6 @@ class TestGetStyleGuidelines:
     def test_sends_auth_for_githubusercontent(self, monkeypatch):
         """Verify auth header construction for githubusercontent.com URLs."""
         monkeypatch.setenv("GH_TOKEN", "ghp_testtoken")
-        # We can't actually hit githubusercontent.com, so just verify the
-        # request object is constructed with the right header by mocking urlopen.
         import urllib.request
 
         captured_req = {}
@@ -140,6 +166,44 @@ class TestGetStyleGuidelines:
             )
         assert result is None  # mocked error
         assert captured_req.get("auth") == "Bearer ghp_testtoken"
+
+    def test_no_auth_for_lookalike_domain(self, monkeypatch):
+        """Token must NOT be sent to evil.com/github.com or github.com.evil.com."""
+        monkeypatch.setenv("GH_TOKEN", "ghp_secret")
+        import urllib.request
+
+        captured_req = {}
+
+        def mock_urlopen(req, timeout=None):
+            captured_req["auth"] = req.get_header("Authorization")
+            raise urllib.error.URLError("mocked")
+
+        with patch("config.urllib.request.urlopen", side_effect=mock_urlopen):
+            get_style_guidelines(url="https://github.com.evil.com/path")
+        assert captured_req.get("auth") is None
+
+
+class TestIsGithubHost:
+    """Tests for the _is_github_host hostname check."""
+
+    def test_exact_github(self):
+        assert _is_github_host("github.com") is True
+
+    def test_subdomain_github(self):
+        assert _is_github_host("raw.githubusercontent.com") is True
+
+    def test_evil_lookalike(self):
+        assert _is_github_host("github.com.evil.com") is False
+
+    def test_evil_path_trick(self):
+        # urlparse puts "evil.com" as hostname for https://evil.com/github.com
+        assert _is_github_host("evil.com") is False
+
+    def test_none(self):
+        assert _is_github_host(None) is False
+
+    def test_empty(self):
+        assert _is_github_host("") is False
 
 
 # ── Prompt injection into generation ────────────────────────────────────────
@@ -183,8 +247,8 @@ class TestStyleGuidelinesInPrompt:
         prompt = call_args[1]["messages"][0]["content"]
         assert "STYLE_GUIDELINES" not in prompt
 
-    def test_style_guidelines_reduce_diff_budget(self):
-        """Style guidelines content consumes context budget, reducing diff space."""
+    def test_style_guidelines_included_in_prompt_consuming_budget(self):
+        """Style guidelines content is injected into the prompt, consuming context budget."""
         large_guidelines = "x" * 5000
         mock_client = _mock_ai_response("NO_UPDATE_NEEDED")
         prompts = {}

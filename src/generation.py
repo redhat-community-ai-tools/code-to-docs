@@ -207,8 +207,14 @@ Return ONLY:
 """
 
     # Inject persistent style guidelines from remote URL.
-    # Precedence (highest to lowest): per-file instructions > global user
-    # instructions > persistent style guidelines > base prompt rules.
+    # Injection order in the prompt (top to bottom): base prompt rules →
+    # style guidelines → user instructions (global + per-file).
+    # Later sections take precedence, so user instructions override style
+    # guidelines, which override base rules.
+    # NOTE: Style guidelines use data-block delimiters (<<<...>>>) because
+    # this content is fetched from an external URL and could contain prompt
+    # injection attempts.  Plain-text user instructions are trusted input
+    # from the PR comment author.
     if style_guidelines:
         prompt_template += f"""
 

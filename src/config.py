@@ -8,6 +8,7 @@ Also handles fetching persistent style guidelines from a remote URL.
 
 import os
 import re
+import urllib.parse
 import urllib.request
 import urllib.error
 
@@ -134,48 +135,111 @@ def truncate_diff(diff_text, max_chars, label="diff"):
 # =============================================================================
 
 _MAX_STYLE_GUIDELINES_CHARS = 10_000
+_MAX_STYLE_GUIDELINES_BYTES = _MAX_STYLE_GUIDELINES_CHARS * 4  # UTF-8 worst case
 _FETCH_TIMEOUT_SECONDS = 15
+
+# Domains allowed to receive the GH_TOKEN/GH_PAT Bearer token.
+_GITHUB_AUTH_DOMAINS = {"github.com", "githubusercontent.com"}
+
+
+def _is_github_host(hostname):
+    """Return True if *hostname* is a GitHub domain eligible for auth headers.
+
+    Uses parsed hostname (not substring) to prevent token exfiltration via
+    crafted URLs like ``https://evil.com/github.com/foo``.
+    """
+    if not hostname:
+        return False
+    hostname = hostname.lower()
+    return any(
+        hostname == domain or hostname.endswith("." + domain)
+        for domain in _GITHUB_AUTH_DOMAINS
+    )
 
 
 def get_style_guidelines(url=None):
     """
     Fetch documentation style guidelines from a remote URL.
 
-    Reads from STYLE_GUIDELINES_URL env var if *url* is not supplied.
-    For GitHub URLs, attaches GH_TOKEN or GH_PAT as a Bearer token.
-    Returns the content as a string, or None on any failure (with a warning).
+    Reads from ``STYLE_GUIDELINES_URL`` env var if *url* is not supplied.
+    Only ``https://`` URLs are accepted when the URL comes from the env var
+    (the action input). The *url* parameter still allows ``http://`` for
+    testing convenience.
+
+    For GitHub-hosted URLs (``github.com`` / ``githubusercontent.com``),
+    attaches ``GH_TOKEN`` or ``GH_PAT`` as a Bearer token.  The hostname
+    check uses ``urllib.parse.urlparse`` to prevent token leakage to
+    look-alike domains.
+
+    Returns the content as a string, or ``None`` on any failure (with a
+    warning logged).
     """
+    from_env = False
     if not url:
         url = os.environ.get("STYLE_GUIDELINES_URL", "").strip()
+        from_env = True
 
     if not url:
         return None
 
-    print(f"Fetching style guidelines from: {url}")
+    # --- URL validation -------------------------------------------------
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except ValueError as exc:
+        print(f"Warning: Could not parse style guidelines URL: {exc}")
+        return None
+
+    # Env-var URLs (user-controlled action input) must be https to prevent
+    # file:// / http:// SSRF.  Direct *url* param allows http for tests.
+    allowed_schemes = {"https"} if from_env else {"https", "http"}
+    if parsed.scheme not in allowed_schemes:
+        print(
+            f"Warning: Refusing style guidelines URL with scheme "
+            f"'{parsed.scheme}://' (only {', '.join(sorted(allowed_schemes))} allowed)"
+        )
+        return None
+
+    # Redact query/fragment from log to avoid leaking tokens in URLs
+    safe_log_url = urllib.parse.urlunparse(
+        (parsed.scheme, parsed.netloc, parsed.path, "", "", "")
+    )
+    print(f"Fetching style guidelines from: {safe_log_url}")
 
     try:
         req = urllib.request.Request(url)
     except ValueError as exc:
-        print(f"Warning: Could not fetch style guidelines from '{url}': {exc}")
+        print(f"Warning: Could not fetch style guidelines: {exc}")
         return None
 
     req.add_header("User-Agent", "code-to-docs/1.0")
 
-    # Authenticate for GitHub URLs
-    if "github.com" in url or "githubusercontent.com" in url:
+    # Authenticate for verified GitHub domains only (parsed hostname check).
+    if _is_github_host(parsed.hostname):
         token = os.environ.get("GH_TOKEN") or os.environ.get("GH_PAT", "")
         if token:
             req.add_header("Authorization", f"Bearer {token}")
 
     try:
         with urllib.request.urlopen(req, timeout=_FETCH_TIMEOUT_SECONDS) as resp:
-            raw = resp.read().decode("utf-8", errors="replace").strip()
+            # Read in chunks up to a byte limit to avoid unbounded memory use
+            # from a malicious server sending a huge response.
+            chunks = []
+            bytes_read = 0
+            while True:
+                chunk = resp.read(8192)
+                if not chunk:
+                    break
+                bytes_read += len(chunk)
+                chunks.append(chunk)
+                if bytes_read >= _MAX_STYLE_GUIDELINES_BYTES:
+                    break
+            raw = b"".join(chunks).decode("utf-8", errors="replace").strip()
     except (urllib.error.URLError, urllib.error.HTTPError, OSError) as exc:
-        print(f"Warning: Could not fetch style guidelines from '{url}': {exc}")
+        print(f"Warning: Could not fetch style guidelines from '{safe_log_url}': {exc}")
         return None
 
     if not raw:
-        print(f"Warning: Style guidelines at '{url}' is empty, skipping")
+        print(f"Warning: Style guidelines at '{safe_log_url}' is empty, skipping")
         return None
 
     if len(raw) > _MAX_STYLE_GUIDELINES_CHARS:
@@ -183,7 +247,10 @@ def get_style_guidelines(url=None):
             f"Warning: Style guidelines truncated from {len(raw):,} "
             f"to {_MAX_STYLE_GUIDELINES_CHARS:,} chars"
         )
-        raw = raw[:_MAX_STYLE_GUIDELINES_CHARS].rsplit("\n", 1)[0]
+        truncated = raw[:_MAX_STYLE_GUIDELINES_CHARS]
+        # Try to break on a newline boundary; fall back to hard cut.
+        head, sep, _ = truncated.rpartition("\n")
+        raw = head if sep else truncated
 
     print(f"Loaded style guidelines ({len(raw):,} chars)")
     return raw

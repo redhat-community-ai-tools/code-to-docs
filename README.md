@@ -111,6 +111,7 @@ jobs:
           jira-api-token: ${{ secrets.JIRA_API_TOKEN }}
           google-sa-key: ${{ secrets.GOOGLE_SA_KEY }}
           max-context-chars: ${{ secrets.MAX_CONTEXT_CHARS }}
+          style-guidelines-url: 'https://raw.githubusercontent.com/your-org/your-repo/main/STYLE_GUIDE.md'
 ```
 
 ### 2. Configure Secrets
@@ -131,6 +132,7 @@ Add these in **Settings → Secrets → Actions**:
 | `JIRA_API_TOKEN` | _(Optional, for `[review-feature]`)_ Jira API token ([create here](https://id.atlassian.com/manage-profile/security/api-tokens)) |
 | `GOOGLE_SA_KEY` | _(Optional, for `[review-feature]`)_ Google service account JSON key for fetching Google Docs. Docs must be shared with the service account email. |
 | `MAX_CONTEXT_CHARS` | _(Optional)_ Maximum characters for LLM prompt content (default: `400000`, ~100K tokens). Decrease for models with smaller context windows (e.g., `32000` for an 8K-token model). |
+| `STYLE_GUIDELINES_URL` | _(Optional)_ HTTPS URL to a hosted Markdown file containing documentation style guidelines. Fetched at runtime and injected into the LLM prompt. For private GitHub repos, `GH_PAT` is used for authentication. |
 
 ### Supported Model Backends
 
