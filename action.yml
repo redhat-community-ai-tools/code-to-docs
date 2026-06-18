@@ -69,6 +69,10 @@ inputs:
     description: 'Maximum characters for LLM prompt content (default: 400000, ~100K tokens). Decrease for models with smaller context windows (e.g. 32000 for an 8K-token model).'
     required: false
     default: '400000'
+  style-guidelines-url:
+    description: 'URL to a hosted Markdown file containing documentation style guidelines. Fetched at runtime and injected into the LLM prompt. For private GitHub repos, uses GH_TOKEN for authentication.'
+    required: false
+    default: ''
 
 outputs:
   status:
@@ -99,3 +103,4 @@ runs:
     JIRA_API_TOKEN: ${{ inputs.jira-api-token }}
     GOOGLE_SA_KEY: ${{ inputs.google-sa-key }}
     MAX_CONTEXT_CHARS: ${{ inputs.max-context-chars }}
+    STYLE_GUIDELINES_URL: ${{ inputs.style-guidelines-url }}

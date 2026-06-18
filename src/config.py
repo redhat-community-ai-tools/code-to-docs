@@ -3,10 +3,13 @@ Centralized configuration for code-to-docs GitHub Action.
 
 All environment variable access for configuration lives here.
 Runtime env vars (GH_TOKEN, PR_NUMBER, etc.) are still read where needed.
+Also handles fetching persistent style guidelines from a remote URL.
 """
 
 import os
 import re
+import urllib.request
+import urllib.error
 
 import openai
 from openai import OpenAI
@@ -124,6 +127,66 @@ def truncate_diff(diff_text, max_chars, label="diff"):
     pct = len(result) * 100 // len(diff_text)
     print(f"Warning: Truncated {label} from {len(diff_text):,} to ~{len(result):,} chars ({pct}% retained, {included}/{total_files} files)")
     return result + suffix
+
+
+# =============================================================================
+# STYLE GUIDELINES
+# =============================================================================
+
+_MAX_STYLE_GUIDELINES_CHARS = 10_000
+_FETCH_TIMEOUT_SECONDS = 15
+
+
+def get_style_guidelines(url=None):
+    """
+    Fetch documentation style guidelines from a remote URL.
+
+    Reads from STYLE_GUIDELINES_URL env var if *url* is not supplied.
+    For GitHub URLs, attaches GH_TOKEN or GH_PAT as a Bearer token.
+    Returns the content as a string, or None on any failure (with a warning).
+    """
+    if not url:
+        url = os.environ.get("STYLE_GUIDELINES_URL", "").strip()
+
+    if not url:
+        return None
+
+    print(f"Fetching style guidelines from: {url}")
+
+    try:
+        req = urllib.request.Request(url)
+    except ValueError as exc:
+        print(f"Warning: Could not fetch style guidelines from '{url}': {exc}")
+        return None
+
+    req.add_header("User-Agent", "code-to-docs/1.0")
+
+    # Authenticate for GitHub URLs
+    if "github.com" in url or "githubusercontent.com" in url:
+        token = os.environ.get("GH_TOKEN") or os.environ.get("GH_PAT", "")
+        if token:
+            req.add_header("Authorization", f"Bearer {token}")
+
+    try:
+        with urllib.request.urlopen(req, timeout=_FETCH_TIMEOUT_SECONDS) as resp:
+            raw = resp.read().decode("utf-8", errors="replace").strip()
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError) as exc:
+        print(f"Warning: Could not fetch style guidelines from '{url}': {exc}")
+        return None
+
+    if not raw:
+        print(f"Warning: Style guidelines at '{url}' is empty, skipping")
+        return None
+
+    if len(raw) > _MAX_STYLE_GUIDELINES_CHARS:
+        print(
+            f"Warning: Style guidelines truncated from {len(raw):,} "
+            f"to {_MAX_STYLE_GUIDELINES_CHARS:,} chars"
+        )
+        raw = raw[:_MAX_STYLE_GUIDELINES_CHARS].rsplit("\n", 1)[0]
+
+    print(f"Loaded style guidelines ({len(raw):,} chars)")
+    return raw
 
 
 def check_context_error(e):

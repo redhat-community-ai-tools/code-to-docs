@@ -27,6 +27,7 @@ def clean_env(monkeypatch):
         "PR_NUMBER",
         "PR_BASE",
         "COMMENT_BODY",
+        "STYLE_GUIDELINES_URL",
     ]:
         monkeypatch.delenv(var, raising=False)
 

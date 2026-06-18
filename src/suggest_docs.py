@@ -21,7 +21,7 @@ import argparse
 import difflib
 from pathlib import Path
 
-from config import get_client, get_model_name, get_branch_name, get_max_context_chars
+from config import get_client, get_model_name, get_branch_name, get_max_context_chars, get_style_guidelines
 from github_ops import get_diff, get_commit_info, setup_docs_environment, push_and_open_pr
 from discovery import find_relevant_files_optimized, ask_ai_for_relevant_files, get_file_content_or_summaries
 from generation import generate_updates_parallel, load_full_content, ask_ai_for_updated_content, overwrite_file
@@ -65,6 +65,9 @@ def main():
         result = build_all_indexes(force=True)
         print(f"Index build complete: {result['status']}")
         return
+
+    # Load persistent style guidelines (if configured)
+    style_guidelines = get_style_guidelines() or ""
 
     # Detect which command was used
     comment_body = os.environ.get("COMMENT_BODY", "")
@@ -271,7 +274,8 @@ def main():
         print(f"Generating updates in parallel (max {args.max_workers} workers)...")
         files_with_content = generate_updates_parallel(
             diff, relevant_files, max_workers=args.max_workers,
-            user_instructions=user_instructions, file_instructions=file_instructions
+            user_instructions=user_instructions, file_instructions=file_instructions,
+            style_guidelines=style_guidelines,
         )
 
         for file_path, current, updated in files_with_content:
@@ -290,7 +294,8 @@ def main():
             print(f"Checking if {file_path} needs an update...")
             updated = ask_ai_for_updated_content(
                 diff, file_path, current,
-                user_instructions=user_instructions, file_instructions=file_instructions
+                user_instructions=user_instructions, file_instructions=file_instructions,
+                style_guidelines=style_guidelines,
             )
 
             if updated.strip() == "NO_UPDATE_NEEDED":
