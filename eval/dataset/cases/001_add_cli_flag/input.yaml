@@ -1,0 +1,7 @@
+# Case 001 — positive. A PR adds a --verbose CLI flag; the CLI reference doc
+# documents the command-line options and should gain the new flag. The guide and
+# api docs are distractors that a conservative selector must leave alone.
+description: PR adds a --verbose CLI flag to the argument parser
+case_type: positive
+trap_shape: none
+source: synthetic (formalizes the REPL --verbose scenario)

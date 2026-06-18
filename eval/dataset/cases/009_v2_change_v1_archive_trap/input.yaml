@@ -1,0 +1,8 @@
+# Case 009 — negative, VERSION trap (D-16 "same component, different version"). A PR adds
+# Processor.reset() to the v2 module. The only doc is the v1 ARCHIVE (same class name,
+# explicitly legacy/no-longer-updated). Nothing should update - the change is v2; the v1
+# archive must stay frozen. Trap: same "Processor" name tempts an update to the wrong version.
+description: adds Processor.reset() to v2; the v1 archive doc (same class name) must not change
+case_type: negative
+trap_shape: same component, different version (v2 code vs v1 archive doc) - D-16
+source: synthetic

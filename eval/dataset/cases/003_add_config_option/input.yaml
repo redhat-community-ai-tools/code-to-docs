@@ -1,0 +1,9 @@
+# Case 003 — positive, MULTI-CANDIDATE (designed to test the index-path finding).
+# A diff adds a `retry_limit` config option. The config/ folder has THREE docs, so the
+# index path's Stage 1 narrows to a folder with multiple candidates (not one). If the
+# index path now selects config/reference.md correctly, it confirms the single-candidate
+# hypothesis from case 001 (index path bails specifically when it narrows to 1 candidate).
+description: PR adds a retry_limit config option; config/reference.md is the options reference
+case_type: positive
+trap_shape: none (multi-candidate index test - config/ has 3 docs)
+source: synthetic (built to probe the 001 index-path finding)

@@ -1,0 +1,8 @@
+# Case 008 — positive, CONCEPTUAL link. A PR adds a new ConfigError raised when the config
+# file is missing; the troubleshooting/errors doc lists errors and should gain it. Like 003,
+# the code->doc link is conceptual (new raise -> "common errors" doc) rather than a literal
+# symbol mirror. Confirms whether the recall-bias generalizes across conceptual links.
+description: adds a ConfigError raised when the config file is missing
+case_type: positive
+trap_shape: none (conceptual link - new error -> troubleshooting doc)
+source: synthetic

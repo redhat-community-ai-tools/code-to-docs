@@ -1,0 +1,7 @@
+# Answer key for case 009 (negative, version trap). ASCII-only.
+# The change is to v2; the v1 archive (same class name) is explicitly frozen -> no update.
+description: negative version trap - v2 Processor change must not touch the v1 archive doc
+expected_files: []
+content:
+  archive/v1.md:
+    expect_no_update: true

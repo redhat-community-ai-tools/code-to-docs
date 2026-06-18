@@ -1,0 +1,9 @@
+diff --git a/src/cli.py b/src/cli.py
+index c3c3c3c..d4d4d4d 100644
+--- a/src/cli.py
++++ b/src/cli.py
+@@ -9,5 +9,6 @@ def build_parser():
+     parser = argparse.ArgumentParser(prog="mytool")
+     parser.add_argument("--config", metavar="PATH", help="Path to the config file.")
++    parser.add_argument("--verbose", action="store_true", help="Enable verbose logging.")
+     return parser

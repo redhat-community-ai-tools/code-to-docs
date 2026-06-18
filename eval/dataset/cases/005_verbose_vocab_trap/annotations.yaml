@@ -1,0 +1,9 @@
+# Answer key for case 005 (negative vocab trap). ASCII-only.
+# The new --verbose CLI flag is unrelated to the existing `verbose` CONFIG key, and there
+# is no CLI doc to update -> nothing should be selected, and content-gen on the config doc
+# should return NO_UPDATE_NEEDED.
+description: negative vocab trap - CLI --verbose vs unrelated config 'verbose' key
+expected_files: []
+content:
+  config/settings.md:
+    expect_no_update: true

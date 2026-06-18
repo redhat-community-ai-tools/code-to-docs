@@ -1,0 +1,7 @@
+# Case 007 — negative, CLEAN refactor (baseline correct-reject). An internal local variable
+# is renamed; no API, behavior, or documented surface changes. Nothing should update. This
+# is the easy negative - if discovery wrongly selects here, conservatism is badly broken.
+description: internal variable rename (tmp -> buf); no documented behavior changes
+case_type: negative
+trap_shape: none (clean refactor - baseline correct-reject)
+source: synthetic

@@ -1,0 +1,8 @@
+# Answer key for case 002 (negative trap). ASCII-only.
+# The diff renames a PRIVATE helper; the public normalize_path() API is unchanged,
+# so nothing should be selected and content-gen should return NO_UPDATE_NEEDED.
+description: negative trap - internal rename; public API doc must not change
+expected_files: []
+content:
+  api/paths.md:
+    expect_no_update: true

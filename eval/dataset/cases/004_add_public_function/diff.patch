@@ -1,0 +1,13 @@
+diff --git a/src/cache.py b/src/cache.py
+index a1a1a1a..b2b2b2b 100644
+--- a/src/cache.py
++++ b/src/cache.py
+@@ -18,3 +18,8 @@ def reload():
+     """Re-read the active configuration from disk."""
+     global _ACTIVE
+     _ACTIVE = load(_ACTIVE.path)
++
++
++def cache_clear():
++    """Clear the in-memory config cache."""
++    _CACHE.clear()

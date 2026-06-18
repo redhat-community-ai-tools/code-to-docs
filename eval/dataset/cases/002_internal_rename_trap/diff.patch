@@ -1,0 +1,17 @@
+diff --git a/src/pathutils.py b/src/pathutils.py
+index 3f2a1b0..8c4d9e1 100644
+--- a/src/pathutils.py
++++ b/src/pathutils.py
+@@ -1,11 +1,11 @@
+ import os
+
+
+-def _normalize_path(p):
++def _canonical_path(p):
+     """Internal helper: absolute, user-expanded path."""
+     return os.path.abspath(os.path.expanduser(p))
+
+
+ def resolve_root(root):
+-    return _normalize_path(root)
++    return _canonical_path(root)

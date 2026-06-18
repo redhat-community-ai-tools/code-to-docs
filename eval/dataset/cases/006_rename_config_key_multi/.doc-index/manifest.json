@@ -1,0 +1,19 @@
+{
+  "version": "1.0",
+  "created": "2026-06-18T15:29:20.826629",
+  "folders": {
+    "guide": {
+      "built": "2026-06-18T15:29:25.596829",
+      "doc_hashes": {
+        "guide\\migration.md": "9ea3d31bf5013f3001f9acf5767380e1d2116b81f9c242dd0db018070352f642"
+      }
+    },
+    "config": {
+      "built": "2026-06-18T15:29:27.059319",
+      "doc_hashes": {
+        "config\\reference.md": "fb36b175d4870fcd6a4030aa7ef375ffd873946cd865ac06232b1c05baede170"
+      }
+    }
+  },
+  "updated": "2026-06-18T15:29:27.062332"
+}

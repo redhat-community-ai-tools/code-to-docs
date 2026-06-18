@@ -1,0 +1,11 @@
+diff --git a/src/loader.py b/src/loader.py
+index 1a2b3c4..5d6e7f8 100644
+--- a/src/loader.py
++++ b/src/loader.py
+@@ -8,5 +8,6 @@ def load_config(data):
+     cfg = Config()
+     cfg.timeout = data.get("timeout", 30)
+     cfg.output_dir = data.get("output_dir", "./build")
++    cfg.retry_limit = data.get("retry_limit", 3)
+     cfg.log_level = data.get("log_level", "info")
+     return cfg

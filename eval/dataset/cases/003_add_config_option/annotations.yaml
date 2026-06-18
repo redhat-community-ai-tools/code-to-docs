@@ -1,0 +1,11 @@
+# Answer key for case 003 (positive, multi-candidate). ASCII-only.
+# Adds a retry_limit config option; the options reference should gain it. The other two
+# config docs (advanced tuning, migration) are siblings in the same folder - distractors
+# the selector must leave alone.
+description: positive - adds retry_limit; config/reference.md should be selected + updated
+expected_files:
+  - config/reference.md
+content:
+  config/reference.md:
+    must_mention: ["retry_limit"]
+    must_not_mention: ["worker_count"]   # a key from advanced.md; must not bleed in here

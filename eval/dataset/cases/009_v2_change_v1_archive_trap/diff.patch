@@ -1,0 +1,12 @@
+diff --git a/src/v2/processor.py b/src/v2/processor.py
+index 5b5b5b5..6c6c6c6 100644
+--- a/src/v2/processor.py
++++ b/src/v2/processor.py
+@@ -8,3 +8,7 @@ class Processor:
+     def run(self):
+         for item in self._queue:
+             self._handle(item)
++
++    def reset(self):
++        """Reset the processor to its initial state."""
++        self._state = None

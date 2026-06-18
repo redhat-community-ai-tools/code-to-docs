@@ -1,0 +1,7 @@
+# Answer key for case 008 (positive, conceptual link). ASCII-only.
+description: positive - new ConfigError; troubleshooting/errors.md should document it
+expected_files:
+  - troubleshooting/errors.md
+content:
+  troubleshooting/errors.md:
+    must_mention: ["ConfigError"]

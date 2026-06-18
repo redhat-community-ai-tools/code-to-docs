@@ -1,0 +1,13 @@
+# Answer key for case 001. ASCII-only (vendored score.py reads this with the Windows
+# default codec; non-ASCII must_mention strings would corrupt and break matching).
+description: positive - adds --verbose; cli/reference.md should be selected and updated
+# Selection answer key (both discovery paths score against this):
+expected_files:
+  - cli/reference.md
+# Content answer key, per file that content-gen runs on (the gold targets, D-20):
+content:
+  cli/reference.md:
+    must_mention: ["--verbose"]        # the new flag must appear
+    must_not_mention: ["--quiet"]      # a plausible flag NOT in the diff (catches over-eager add)
+    # max_new_lines / must_not_add_sections deferred until execute.py emits the original
+    # baseline (DECISIONS open-questions).

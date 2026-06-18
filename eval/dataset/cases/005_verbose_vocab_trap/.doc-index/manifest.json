@@ -1,0 +1,19 @@
+{
+  "version": "1.0",
+  "created": "2026-06-18T15:29:15.898069",
+  "folders": {
+    "config": {
+      "built": "2026-06-18T15:29:19.610121",
+      "doc_hashes": {
+        "config\\settings.md": "b8194cd7480f8575f0bda1918784d2c40e6bd6ff743e8d783f6f4aedff3ecbd0"
+      }
+    },
+    "guide": {
+      "built": "2026-06-18T15:29:20.797082",
+      "doc_hashes": {
+        "guide\\intro.md": "9ff8bf8682d4ee72b4485b4bf315726f74aeb2c1944f9a820d8ab597508053bf"
+      }
+    }
+  },
+  "updated": "2026-06-18T15:29:20.799893"
+}

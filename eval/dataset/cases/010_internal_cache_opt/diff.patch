@@ -1,0 +1,12 @@
+diff --git a/src/loader.py b/src/loader.py
+index 7d7d7d7..8e8e8e8 100644
+--- a/src/loader.py
++++ b/src/loader.py
+@@ -1,6 +1,8 @@
+ import os
++from functools import lru_cache
+
+
++@lru_cache(maxsize=128)
+ def _resolve(path):
+     return os.path.abspath(os.path.expanduser(path))

@@ -1,0 +1,10 @@
+# Case 005 — negative, VOCAB trap (D-16 "same vocabulary, different domain").
+# A PR adds a --verbose CLI flag. The config doc has a pre-existing, UNRELATED `verbose`
+# config key. There is no CLI reference doc in this tree, so nothing existing should
+# update. The trap: the LLM sees "verbose" in both and updates/fabricates in the config
+# doc. (code-to-docs only updates existing docs; it does not create new ones, so "add a
+# CLI doc" is not an option -> correct result is select nothing.)
+description: --verbose CLI flag added; the unrelated 'verbose' config key doc must not change
+case_type: negative
+trap_shape: same vocabulary, different domain (CLI flag vs config key) - D-16
+source: synthetic (the REPL vocab-overlap trap)

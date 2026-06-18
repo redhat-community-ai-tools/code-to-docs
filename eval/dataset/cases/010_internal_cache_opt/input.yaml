@@ -1,0 +1,8 @@
+# Case 010 — negative, borderline correct-NONE. A PR adds an internal lru_cache to a config
+# helper - a performance optimization that touches config.py (which the config reference doc
+# is "about") but changes no documented behavior or keys. Nothing should update. Tests
+# conservatism on a change that is module-adjacent to a documented file but not doc-relevant.
+description: adds an internal lru_cache to a config helper; no documented behavior changes
+case_type: negative
+trap_shape: none (borderline - touches a documented file's module, not its documented behavior)
+source: synthetic

@@ -1,0 +1,6 @@
+# Answer key for case 007 (negative, clean refactor). ASCII-only.
+description: negative - internal variable rename, no behavior change; nothing should update
+expected_files: []
+content:
+  guide/usage.md:
+    expect_no_update: true

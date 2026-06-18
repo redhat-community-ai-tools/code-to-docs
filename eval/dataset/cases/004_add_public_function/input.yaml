@@ -1,0 +1,8 @@
+# Case 004 — positive, LITERAL link. A PR adds a public `cache_clear()` function; the API
+# reference documents public functions and should gain it. Contrast with 003 (conceptual
+# link, missed by both paths): this is a direct "new public symbol -> API doc" link, the
+# kind that should be easiest for discovery to catch.
+description: PR adds a public cache_clear() function
+case_type: positive
+trap_shape: none (literal link - new public function -> API reference)
+source: synthetic

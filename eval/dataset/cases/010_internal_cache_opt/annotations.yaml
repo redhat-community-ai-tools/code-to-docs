@@ -1,0 +1,8 @@
+# Answer key for case 010 (negative, borderline correct-NONE). ASCII-only.
+# Internal perf optimization in config.py; the config reference documents user-facing keys,
+# none of which changed -> nothing should update.
+description: negative - internal lru_cache optimization; no documented behavior changes
+expected_files: []
+content:
+  config/reference.md:
+    expect_no_update: true

@@ -1,0 +1,10 @@
+diff --git a/src/config.py b/src/config.py
+index 3939393..4a4a4a4 100644
+--- a/src/config.py
++++ b/src/config.py
+@@ -1,5 +1,7 @@
+ def load(path):
++    if not os.path.exists(path):
++        raise ConfigError(f"Config file not found: {path}")
+     with open(path) as f:
+         return parse(f.read())

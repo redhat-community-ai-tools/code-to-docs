@@ -1,0 +1,15 @@
+{
+  "version": "1.0",
+  "created": "2026-06-18T15:29:03.759047",
+  "folders": {
+    "config": {
+      "built": "2026-06-18T15:29:09.739894",
+      "doc_hashes": {
+        "config\\advanced.md": "688b16ee949014898d83fe202182d53837bf178648a892537bd83a12e0aa9c6c",
+        "config\\migration.md": "e2b3f86e02ea39acfb9ee4981c42f443a33293bc7454177c7209ca9d070c07a7",
+        "config\\reference.md": "e690ab1ff495bdef6aed9bd280fd025173f07c6c747b23a7b0b4acde13491f9b"
+      }
+    }
+  },
+  "updated": "2026-06-18T15:29:09.742896"
+}

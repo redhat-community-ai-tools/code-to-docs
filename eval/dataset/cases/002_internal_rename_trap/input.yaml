@@ -1,0 +1,9 @@
+# Case 002 — negative, name-overlap trap (DECISIONS D-16).
+# An internal PRIVATE helper `_normalize_path` is renamed. A doc documents the
+# PUBLIC `normalize_path()` API, which is UNCHANGED. The shared "normalize_path"
+# vocabulary is the trap: a conservatism break would update the public-API doc.
+# Correct behavior: select nothing, generate no update.
+description: internal _normalize_path() rename; the public normalize_path() doc must not change
+case_type: negative
+trap_shape: same API surface, different layer (private helper vs public API)
+source: synthetic (D-16 trap)

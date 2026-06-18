@@ -1,0 +1,13 @@
+# Answer key for case 006 (positive, multi-target). ASCII-only.
+# The rename touches both the config reference (the key listing) and the migration guide
+# (records renames). BOTH should be selected and updated.
+description: positive multi-target - out_dir renamed to output_dir; reference + migration both update
+expected_files:
+  - config/reference.md
+  - guide/migration.md
+content:
+  config/reference.md:
+    must_mention: ["output_dir"]
+    must_not_mention: ["out_dir"]   # the old name should be replaced, not retained
+  guide/migration.md:
+    must_mention: ["output_dir"]

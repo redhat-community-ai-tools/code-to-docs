@@ -1,0 +1,8 @@
+# Answer key for case 004 (positive, literal link). ASCII-only.
+description: positive - adds public cache_clear(); api/reference.md should gain it
+expected_files:
+  - api/reference.md
+content:
+  api/reference.md:
+    must_mention: ["cache_clear"]
+    must_not_mention: ["delete_cache"]   # a plausible-but-wrong name; catches hallucination

@@ -1,0 +1,8 @@
+# Case 006 — positive, MULTI-TARGET. A user-facing config key `out_dir` is renamed to
+# `output_dir`. TWO docs should update: the config reference (lists the key) and the
+# migration guide (records breaking renames). Tests whether discovery finds ALL the docs
+# that should update, not just one.
+description: user-facing config key out_dir renamed to output_dir
+case_type: positive
+trap_shape: none (multi-target - config reference + migration guide both need updating)
+source: synthetic

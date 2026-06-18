@@ -1,0 +1,25 @@
+{
+  "version": "1.0",
+  "created": "2026-06-18T15:28:51.318669",
+  "folders": {
+    "cli": {
+      "built": "2026-06-18T15:28:57.010284",
+      "doc_hashes": {
+        "cli\\reference.md": "6587d14b2647341f8f7bc7eccb362e2e4ae75babce7a7f1b067e7c24e08a56bd"
+      }
+    },
+    "api": {
+      "built": "2026-06-18T15:28:57.650531",
+      "doc_hashes": {
+        "api\\overview.md": "d9776fa54d0883e1e8c540dd3e7fc5e38342d8920a6464b5366778bf2bd8551d"
+      }
+    },
+    "guide": {
+      "built": "2026-06-18T15:28:58.085607",
+      "doc_hashes": {
+        "guide\\getting-started.md": "ab88ad9d4184aaa62404ef26239ac58e924b6c54995ea376fe5dc44e4d453c2c"
+      }
+    }
+  },
+  "updated": "2026-06-18T15:28:58.088606"
+}

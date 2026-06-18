@@ -1,0 +1,6 @@
+# Run outputs are regenerated every run — never commit them.
+runs/
+
+# Python caches
+__pycache__/
+*.pyc

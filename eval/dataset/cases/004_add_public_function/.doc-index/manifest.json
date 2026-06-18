@@ -1,0 +1,19 @@
+{
+  "version": "1.0",
+  "created": "2026-06-18T15:29:09.763893",
+  "folders": {
+    "guide": {
+      "built": "2026-06-18T15:29:14.391058",
+      "doc_hashes": {
+        "guide\\intro.md": "6bae5101a638fcb9c2e3ebf65d81c5a2abfaf03e5c22483323b43fef27e33ce0"
+      }
+    },
+    "api": {
+      "built": "2026-06-18T15:29:15.869076",
+      "doc_hashes": {
+        "api\\reference.md": "a5718983328acb5e708a3dcfcb76fa02c0a8c074c78e38e493c5f319292b42ac"
+      }
+    }
+  },
+  "updated": "2026-06-18T15:29:15.871070"
+}

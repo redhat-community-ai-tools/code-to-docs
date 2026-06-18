@@ -1,0 +1,11 @@
+diff --git a/src/main.py b/src/main.py
+index 7a1b2c3..9d4e5f6 100644
+--- a/src/main.py
++++ b/src/main.py
+@@ -12,6 +12,7 @@ def build_parser():
+     parser = argparse.ArgumentParser(prog="mytool")
+     parser.add_argument("--config", metavar="PATH", help="Path to the configuration file.")
+     parser.add_argument("--output", metavar="DIR", help="Directory for generated output.")
++    parser.add_argument("--verbose", action="store_true", help="Enable verbose logging output.")
+     parser.add_argument("--dry-run", action="store_true", help="Simulate without writing files.")
+     return parser

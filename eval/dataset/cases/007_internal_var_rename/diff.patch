@@ -1,0 +1,13 @@
+diff --git a/src/process.py b/src/process.py
+index 1717171..2828282 100644
+--- a/src/process.py
++++ b/src/process.py
+@@ -1,7 +1,7 @@
+ def run(items):
+-    tmp = []
++    buf = []
+     for it in items:
+-        tmp.append(transform(it))
+-    return tmp
++        buf.append(transform(it))
++    return buf

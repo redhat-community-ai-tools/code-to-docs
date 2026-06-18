@@ -1,0 +1,126 @@
+# code-to-docs evaluation harness — config consumed by the vendored scorer
+# (eval/scoring/score.py). See eval/scoring/PROVENANCE.md for the scorer's origin.
+#
+# RUN FROM the eval/ directory so paths resolve cleanly:
+#     cd eval
+#     $env:AGENT_EVAL_RUNS_DIR = "runs"        # PowerShell  (bash: AGENT_EVAL_RUNS_DIR=runs)
+#     python scoring/score.py judges     --run-id <id> --config eval.yaml
+#     python scoring/score.py regression --run-id <id> --config eval.yaml
+#
+# Why run from eval/: the scorer resolves `module:` judges against CWD and the runs
+# dir against AGENT_EVAL_RUNS_DIR (default "eval/runs", which assumes CWD=repo root).
+# Running from eval/ with AGENT_EVAL_RUNS_DIR=runs keeps both relative to eval/.
+# (Our own runner/aggregator will set sys.path explicitly and not depend on CWD.)
+
+name: code-to-docs-eval
+description: Quality eval for code-to-docs file selection and content generation
+skill: code-to-docs        # also the runs subdir: <runs>/code-to-docs/<run_id>/
+
+# Per-case answer keys (annotations.yaml: expected_files + content rules), resolved
+# relative to THIS file's directory → eval/dataset/cases/<case_id>/annotations.yaml.
+# WITHOUT this block the scorer loads no annotations (record["annotations"] = {}),
+# which silently turns every positive case into a false "expected NONE" miss and
+# makes content assertions pass vacuously. Do not remove.
+dataset:
+  path: dataset/cases
+
+# Outputs the runner writes per case; the scorer reads these into the judge record.
+# (Our execute.py produces these; the smoke fixtures hand-author them.)
+outputs:
+  - path: selection_index    # selected_files.json — index discovery path (D-04)
+    schema: JSON array of doc paths selected by find_relevant_files_optimized.
+  - path: selection_scan     # selected_files.json — full-scan fallback path (D-04)
+    schema: JSON array of doc paths selected by ask_ai_for_relevant_files.
+  - path: content            # one file per annotated doc; content or NO_UPDATE_NEEDED
+    schema: Generated doc content per annotated file; filename is the doc path with '/' -> '__'.
+
+# We judge files, not an agent transcript — no event/log capture needed.
+traces:
+  stdout: false
+  stderr: false
+  events: false
+  metrics: false
+
+judges:
+  # --- guard: the answer key actually loaded (catches the vacuous-pass hazard) ---
+  - name: annotations_present
+    description: Fail loudly if a case's annotations did not load (fixture/config error).
+    module: judges.meta
+    function: judge_annotations_present
+
+  # --- selection: the two discovery paths scored SEPARATELY (D-04 / D-06 / D-13) ---
+  - name: selection_f1_index
+    description: Precision/recall/F1 of the index discovery path vs expected_files.
+    module: judges.selection
+    function: judge_selection
+    arguments: { which: index }
+
+  - name: selection_f1_scan
+    description: Precision/recall/F1 of the full-scan discovery path vs expected_files.
+    module: judges.selection
+    function: judge_selection
+    arguments: { which: scan }
+
+  # --- content assertions (D-05): must_mention / must_not_mention / expect_no_update ---
+  # max_new_lines + must_not_add_sections need the ORIGINAL doc; deferred to a module
+  # judge once execute.py emits the baseline (tracked in DECISIONS open-questions).
+  - name: content_assertions
+    description: Generated content honors per-file mention rules / NO_UPDATE_NEEDED.
+    check: |
+      ann = (outputs.get("annotations") or {}).get("content") or {}
+      files = outputs.get("files") or {}
+      fails = []
+      for doc, rules in ann.items():
+          key = "content/" + doc.replace("/", "__")
+          c = files.get(key)
+          if c is None:
+              c = files.get(key.replace("/", "\\"))
+          if c is None:
+              fails.append(doc + ": no content output")
+              continue
+          if isinstance(c, dict):
+              fails.append(doc + ": binary content")
+              continue
+          s = c.strip()
+          if rules.get("expect_no_update"):
+              if s != "NO_UPDATE_NEEDED":
+                  fails.append(doc + ": expected NO_UPDATE_NEEDED, got " + str(len(s)) + " chars")
+              continue
+          for m in (rules.get("must_mention") or []):
+              if m not in c:
+                  fails.append(doc + ": missing must_mention " + repr(m))
+          for m in (rules.get("must_not_mention") or []):
+              if m in c:
+                  fails.append(doc + ": forbidden must_not_mention " + repr(m))
+      if fails:
+          return False, "; ".join(fails)
+      return True, "content assertions passed"
+
+  # --- global format guard (D-05): no leading code-fence wrapper on generated content ---
+  - name: no_fence_wrapper
+    description: Generated content must not start with a ``` code fence wrapper.
+    check: |
+      files = outputs.get("files") or {}
+      fails = []
+      for k, c in files.items():
+          if not k.replace("\\", "/").startswith("content/"):
+              continue
+          if isinstance(c, dict):
+              continue
+          first = ""
+          for ln in c.splitlines():
+              if ln.strip():
+                  first = ln.strip()
+                  break
+          if first.startswith("```"):
+              fails.append(k + ": leading code fence")
+      if fails:
+          return False, "; ".join(fails)
+      return True, "no fence wrappers"
+
+thresholds:
+  annotations_present: { min_pass_rate: 1.0 }   # any case whose answer key failed to load = red
+  selection_f1_index: { min_mean: 0.9 }
+  selection_f1_scan:  { min_mean: 0.9 }
+  content_assertions: { min_pass_rate: 1.0 }
+  no_fence_wrapper:   { min_pass_rate: 1.0 }
