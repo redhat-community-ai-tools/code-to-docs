@@ -133,7 +133,13 @@ def _parse_filter_drops(text):
 
 @contextmanager
 def _workspace(case_dir):
-    """Temp dir: docs at ROOT (get_docs_root() -> cwd) + frozen .doc-index/. chdir in."""
+    """Temp dir: docs at ROOT (get_docs_root() -> cwd) + frozen .doc-index/. chdir in.
+
+    SEQUENTIAL-ONLY: this uses process-global os.chdir(), and discovery's internal worker
+    threads resolve file paths against cwd — so cases must run one at a time. The runner is
+    single-threaded across cases by design (main() loops sequentially). Do NOT parallelize
+    run_case without replacing this global-chdir with per-call cwd handling.
+    """
     ws = Path(tempfile.mkdtemp(prefix="c2d_eval_"))
     prev = Path.cwd()
     try:

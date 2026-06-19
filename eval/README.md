@@ -68,6 +68,21 @@ on Windows — or run with `PYTHONUTF8=1`).
 - No CI workflow — this PR is the harness, runnable locally. CI wiring (PR smoke at N=3, nightly at
   N=10, gated by `score.py regression` vs a committed baseline) is a separate PR.
 
+## Security / trust model
+
+`eval.yaml` is a **trusted input** — the vendored scorer executes it as code:
+
+- judge `check:` snippets run via `exec()` with full builtins,
+- `if:` conditions are `eval()`'d,
+- `module:` judges are imported by name.
+
+So **write access to `eval.yaml` (and the `judges/` modules it names) is effectively
+code-execution trust** during scoring. That's acceptable here — `eval.yaml` is a committed file
+that only changes through PR review — but it's the boundary to be aware of. The scorer under
+`scoring/` is copied byte-identical from agent-eval-harness (see `scoring/PROVENANCE.md`), so this
+is documented rather than patched; restricting the `exec()` namespace would be a change to land
+upstream first.
+
 ## Authoring a case
 
 A case is `dataset/cases/NNN_name/` with:
