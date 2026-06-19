@@ -1,6 +1,3 @@
 # Run outputs are regenerated every run — never commit them.
+# (Python caches are already covered by the repo-root .gitignore.)
 runs/
-
-# Python caches
-__pycache__/
-*.pyc
