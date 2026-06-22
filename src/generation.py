@@ -96,12 +96,16 @@ def _validate_rst(text):
                 errors.append(node.astext())
 
         if errors:
-            return False, "RST validation errors:\n" + "\n".join(errors[:5])
+            error_text = "\n".join(errors[:5])[:_MAX_VALIDATION_ERROR_CHARS]
+            return False, f"RST validation errors:\n{error_text}"
         return True, ""
     except ImportError:
         return True, ""
     except Exception as e:
         return False, f"RST validation failed: {e}"
+
+
+_MAX_VALIDATION_ERROR_CHARS = 1000
 
 
 def _validate_asciidoc(text):
@@ -114,13 +118,14 @@ def _validate_asciidoc(text):
             timeout=30,
         )
         if result.returncode != 0:
-            stderr = result.stderr.strip() if result.stderr else "Unknown error"
+            stderr = (result.stderr or "Unknown error").strip()[:_MAX_VALIDATION_ERROR_CHARS]
             return False, f"AsciiDoc validation errors:\n{stderr}"
         if result.stderr and result.stderr.strip():
             lines = result.stderr.strip().split("\n")
             error_lines = [l for l in lines if "ERROR" in l or "WARNING" in l]
             if error_lines:
-                return False, "AsciiDoc warnings:\n" + "\n".join(error_lines[:5])
+                error_text = "\n".join(error_lines[:5])[:_MAX_VALIDATION_ERROR_CHARS]
+                return False, f"AsciiDoc warnings:\n{error_text}"
         return True, ""
     except FileNotFoundError:
         return True, ""
