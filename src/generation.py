@@ -111,7 +111,7 @@ _MAX_VALIDATION_ERROR_CHARS = 1000
 def _validate_asciidoc(text):
     try:
         result = subprocess.run(
-            ["asciidoctor", "-o", "/dev/null", "-v", "-"],
+            ["asciidoctor", "-o", "/dev/null", "-v", "--safe-mode=secure", "-"],
             input=text,
             text=True,
             capture_output=True,
@@ -399,6 +399,8 @@ Return ONLY the corrected raw file content, no explanations."""
                 )
                 output = (fix_response.choices[0].message.content or "").strip()
                 output = strip_code_fences(output)
+                if not output.endswith("\n"):
+                    output += "\n"
             except Exception as e:
                 check_context_error(e)
                 print(f"Warning: Skipping {file_path} — error during format fix retry: {sanitize_output(str(e))}")

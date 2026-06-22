@@ -118,7 +118,7 @@ def get_doc_folders(docs_root=None):
             except ValueError:
                 continue
 
-            if any(part.startswith('.') or part.startswith('_') for part in rel_path.parts):
+            if any(part.startswith('.') or part.startswith('_') for part in rel_path.parent.parts):
                 continue
 
             if len(rel_path.parts) > 1:
@@ -884,7 +884,8 @@ def find_relevant_files_from_indexes(diff, client=None):
         batch_folders = all_folders[batch_idx:batch_idx + BATCH_SIZE]
         batch_num = (batch_idx // BATCH_SIZE) + 1
 
-        batch_indexes = "\n\n" + "="*50 + "\n\n".join([
+        separator = "\n\n" + "="*50 + "\n\n"
+        batch_indexes = separator.join([
             f"## Documentation Area: {folder}\n\n{indexes[folder]}"
             for folder in batch_folders
         ])
@@ -1047,39 +1048,6 @@ def _process_file_selection_batch(client, prompt, batch_num, total_batches):
 
     return []
 
-
-def get_files_in_areas(areas, docs_root=None):
-    """
-    Get all documentation files in the specified areas.
-    
-    Args:
-        areas: List of folder names
-        docs_root: Optional root path for docs. If None, uses get_docs_root()
-    
-    Returns:
-        list: List of file paths (relative to docs_root)
-    """
-    if docs_root is None:
-        docs_root = get_docs_root()
-    
-    docs_root = Path(docs_root)
-    files = []
-    
-    for area in areas:
-        if area == ROOT_LEVEL_FOLDER:
-            area_path = docs_root
-        else:
-            area_path = docs_root / area
-        if area_path.exists():
-            for ext in ["*.rst", "*.md", "*.adoc"]:
-                for f in area_path.glob(ext):
-                    try:
-                        rel_path = f.relative_to(docs_root)
-                        files.append(str(rel_path))
-                    except ValueError:
-                        files.append(str(f))
-    
-    return list(set(files))  # Deduplicate
 
 
 def fetch_indexes_from_main():
