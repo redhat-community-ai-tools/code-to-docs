@@ -940,7 +940,8 @@ You MUST output something. An empty response is not valid - output [] instead.
     # Deduplicate while preserving order
     all_relevant_files = list(dict.fromkeys(all_relevant_files))
 
-    # Filter out invalid paths (glob patterns, non-doc extensions)
+    # Filter out invalid paths (glob patterns, non-doc extensions, non-existent files)
+    docs_root = get_docs_root()
     valid_files = []
     for f in all_relevant_files:
         if any(c in f for c in ['*', '?', '[']):
@@ -948,6 +949,9 @@ You MUST output something. An empty response is not valid - output [] instead.
             continue
         if not (f.endswith('.md') or f.endswith('.rst') or f.endswith('.adoc')):
             print(f"Skipping non-doc file: {f}")
+            continue
+        if not (Path(docs_root) / f).is_file() and not Path(f).is_file():
+            print(f"Skipping non-existent file: {f}")
             continue
         valid_files.append(f)
     all_relevant_files = valid_files
