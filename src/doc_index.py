@@ -41,6 +41,7 @@ MANIFEST_FILE = "manifest.json"
 SUMMARIES_DIR = "summaries"
 SUMMARIES_MANIFEST = "summaries_manifest.json"
 INDEX_VERSION = "1.0"
+INDEX_BRANCH = "code-to-docs/update-indexes"
 MAX_WORKERS_INDEX = 5  # Parallel threads for index generation
 MAX_WORKERS_API = 10   # Parallel threads for API calls
 
@@ -642,8 +643,6 @@ def update_indexes_if_needed():
     return updated_folders
 
 
-INDEX_BRANCH = "code-to-docs/update-indexes"
-
 
 def commit_indexes_to_repo(content_type="indexes"):
     """
@@ -1235,127 +1234,6 @@ def summaries_exist(docs_root=None):
     
     summary_files = list(summaries_dir.glob("*.summary.md"))
     return len(summary_files) > 0
-
-
-def doc_matches_main(doc_file_path, base_branch="main"):
-    """
-    Check if a local doc file matches the same file on origin/main.
-    
-    This determines if a summary generated from this doc is safe to push to main.
-    
-    Args:
-        doc_file_path: Path to the doc file (relative to docs root)
-        base_branch: The base branch to compare against
-    
-    Returns:
-        bool: True if file matches main (safe to push summary), False otherwise
-    """
-    try:
-        docs_root = get_docs_root()
-        
-        # Get local file hash
-        local_path = Path(docs_root) / doc_file_path
-        if not local_path.exists():
-            local_path = Path(doc_file_path)
-        
-        if not local_path.exists():
-            return False
-        
-        local_hash = hash_file(local_path)
-        
-        # Get file content from origin/main
-        docs_subfolder = os.environ.get("DOCS_SUBFOLDER", "")
-        if docs_subfolder:
-            main_file_path = f"{docs_subfolder}/{doc_file_path}"
-        else:
-            main_file_path = doc_file_path
-        
-        result = run_command_safe(
-            ["git", "show", f"origin/{base_branch}:{main_file_path}"],
-            check=False
-        )
-        
-        if result.returncode != 0:
-            # File doesn't exist on main - check if it's a new file
-            # New files are safe to push
-            return True
-        
-        # Hash main's content
-        main_hash = hashlib.sha256(result.stdout.encode()).hexdigest()
-        
-        return local_hash == main_hash
-    except Exception as e:
-        print(f"Warning: Could not compare {doc_file_path} with main: {sanitize_output(str(e))}")
-        return False
-
-
-def load_manifest_from_main(base_branch="main"):
-    """Load the summaries manifest from the main branch (via git show)."""
-    docs_root = get_docs_root()
-    
-    # Get the relative path to manifest from repo root
-    # We need to construct the path as git sees it
-    docs_subfolder = os.environ.get("DOCS_SUBFOLDER", "")
-    if docs_subfolder:
-        manifest_git_path = f"{docs_subfolder}/{INDEX_DIR}/{SUMMARIES_MANIFEST}"
-    else:
-        manifest_git_path = f"{INDEX_DIR}/{SUMMARIES_MANIFEST}"
-    
-    result = run_command_safe(
-        ["git", "show", f"origin/{base_branch}:{manifest_git_path}"],
-        check=False
-    )
-    
-    if result.returncode == 0 and result.stdout.strip():
-        try:
-            return json.loads(result.stdout)
-        except json.JSONDecodeError:
-            return {"version": "1.0", "files": {}}
-    
-    return {"version": "1.0", "files": {}}
-
-
-def get_safe_summaries_to_push(base_branch="main"):
-    """
-    Get list of summary files that are safe to push to main.
-    
-    Only returns summaries that are:
-    1. NEW (not already on main), AND
-    2. Safe (doc content matches main - prevents pushing summaries for modified docs)
-    
-    Args:
-        base_branch: The base branch to compare against
-    
-    Returns:
-        list: List of summary file paths that are safe to push
-    """
-    docs_root = get_docs_root()
-    local_manifest = load_summaries_manifest(docs_root)
-    main_manifest = load_manifest_from_main(base_branch)
-    
-    main_files = main_manifest.get("files", {})
-    
-    safe_summaries = []
-    
-    for doc_path, info in local_manifest.get("files", {}).items():
-        summary_file = info.get("summary_file")
-        if not summary_file:
-            continue
-        
-        # Skip if already on main with same hash (no need to re-push)
-        if doc_path in main_files:
-            main_hash = main_files[doc_path].get("hash")
-            local_hash = info.get("hash")
-            if main_hash == local_hash:
-                continue  # Already on main, skip
-        
-        # Check if doc matches main (safe to push)
-        if doc_matches_main(doc_path, base_branch):
-            summary_path = get_summaries_dir(docs_root) / summary_file
-            if summary_path.exists():
-                safe_summaries.append(str(summary_path))
-    
-    return safe_summaries
 
 
 # CLI interface for testing
