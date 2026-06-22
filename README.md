@@ -145,7 +145,7 @@ Add these in **Settings → Secrets → Actions**:
 | `MODEL_API_KEY` | API key for the model endpoint (leave empty if not required) |
 | `MODEL_NAME` | Model name to use (e.g., `meta-llama/Llama-3.1-8B-Instruct`, `gemini-2.0-flash`) |
 | `DOCS_REPO_URL` | Docs repository URL (e.g., `https://github.com/org/docs`) |
-| `GH_PAT` | GitHub token with `repo` + `pull_requests:write` permissions |
+| `GH_PAT` | GitHub token with `repo` + `pull_requests:write` permissions. Used for creating docs PRs, posting review comments, and submitting index update PRs |
 | `DOCS_SUBFOLDER` | _(Optional)_ Docs subfolder path (e.g., `docs`) |
 | `DOCS_BASE_BRANCH` | _(Optional)_ Base branch for docs PRs (default: `main`) |
 | `JIRA_URL` | _(Optional, for `[review-feature]`)_ Jira instance URL (e.g., `https://your-company.atlassian.net`) |
@@ -208,4 +208,4 @@ The action builds semantic indexes stored in `.doc-index/`:
 
 - **Folder Indexes** — AI-generated summaries of each documentation folder, including per-file descriptions. The LLM selects relevant files directly from these descriptions without loading the actual file content, reducing API calls and runtime.
 
-Indexes are automatically committed to your main branch and shared across all PRs, reducing runtime from ~20 minutes to ~4 minutes on large projects.
+Indexes are automatically submitted via a PR to your main branch and shared across all PRs once merged, reducing runtime from ~20 minutes to ~4 minutes on large projects.
