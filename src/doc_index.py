@@ -769,7 +769,10 @@ def commit_indexes_to_repo(content_type="indexes"):
 
             finally:
                 run_command_safe(["git", "checkout", current_branch], check=False)
-                run_command_safe(["git", "stash", "pop"], check=False)
+                stash_result = run_command_safe(["git", "stash", "pop"], check=False)
+                if stash_result.returncode != 0 and stash_result.stderr:
+                    print(f"Warning: git stash pop failed — stashed changes may need manual recovery. "
+                          f"Run 'git stash list' to find them.")
                 shutil.rmtree(temp_dir, ignore_errors=True)
 
     except subprocess.CalledProcessError as e:
