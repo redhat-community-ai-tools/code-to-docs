@@ -642,26 +642,29 @@ def update_indexes_if_needed():
     return updated_folders
 
 
+INDEX_BRANCH = "code-to-docs/update-indexes"
+
+
 def commit_indexes_to_repo(content_type="indexes"):
     """
-    Commit the .doc-index folder to the repository.
+    Commit the .doc-index folder and open a PR to the base branch.
 
-    This persists the indexes/summaries so they don't need to be rebuilt on every run.
+    Instead of pushing directly to main (which bypasses branch protection),
+    this pushes to a persistent branch and creates/updates a PR.
 
     Args:
-        content_type: What's being committed - "indexes" or "summaries" (for clearer logs)
+        content_type: What's being committed - "indexes", "summaries", or both
 
     Returns:
-        bool: True if content was committed successfully, False otherwise
+        bool: True if content was committed and PR created/updated, False otherwise
     """
-    docs_root = get_docs_root().resolve()  # Resolve to absolute path
+    docs_root = get_docs_root().resolve()
     index_path = docs_root / INDEX_DIR
 
     if not index_path.exists():
         print(f"No {content_type} to commit")
         return False
 
-    # Determine target directory and relative path for git operations
     docs_subfolder = os.environ.get("DOCS_SUBFOLDER", "")
     if docs_subfolder:
         repo_root = docs_root.parent
@@ -674,12 +677,6 @@ def commit_indexes_to_repo(content_type="indexes"):
 
     try:
         with working_directory(target_dir):
-            if docs_subfolder:
-                print("Changed to repo root for git operations")
-            else:
-                print("Using docs root for git operations")
-
-            # Check if there are any changes to commit
             status_result = run_command_safe(
                 ["git", "status", "--porcelain", index_relative_path],
                 check=False
@@ -689,157 +686,92 @@ def commit_indexes_to_repo(content_type="indexes"):
                 print(f"No {content_type} changes to commit")
                 return False
 
-            # Check if the current branch is up-to-date with main before pushing
-            # This prevents older branches from overwriting newer indexes
             base_branch = os.environ.get("DOCS_BASE_BRANCH", "main")
-
-            # Fetch latest main to get accurate comparison
-            run_command_safe(["git", "fetch", "origin", base_branch], check=False)
-
-            # Get the merge-base between current HEAD and origin/main
-            merge_base_result = run_command_safe(
-                ["git", "merge-base", "HEAD", f"origin/{base_branch}"],
-                check=False
-            )
-
-            # Get the latest commit on origin/main
-            main_head_result = run_command_safe(
-                ["git", "rev-parse", f"origin/{base_branch}"],
-                check=False
-            )
-
-            branch_up_to_date = True
-            if merge_base_result.returncode == 0 and main_head_result.returncode == 0:
-                merge_base = merge_base_result.stdout.strip()
-                main_head = main_head_result.stdout.strip()
-                branch_up_to_date = (merge_base == main_head)
-
-            # Track what files to add (used both here and after branch switch)
-            files_to_add = []
-            add_all = False
-
-            if branch_up_to_date:
-                # Branch is up-to-date, safe to push everything
-                add_all = True
-                run_command_safe(["git", "add", index_relative_path], check=True)
-            else:
-                # Branch is not up-to-date - be selective about what we push
-                print(f"⚠️  Branch is not up-to-date with {base_branch}")
-
-                if "indexes" in content_type:
-                    # For folder indexes: skip entirely (could overwrite newer indexes on main)
-                    print(f"   Skipping index push to avoid overwriting newer indexes on {base_branch}")
-                    print(f"   Indexes will be used locally but not committed")
-                    if "summaries" not in content_type:
-                        return False
-                    # Combined push — indexes can't be pushed but try summaries below
-                    content_type = "summaries"  # update label to reflect what's actually being pushed
-
-                # For summaries: only push if doc content matches main (safe)
-                print(f"   Checking which summaries are safe to push...")
-
-                safe_summaries = get_safe_summaries_to_push(base_branch)
-
-                if safe_summaries:
-                    print(f"   Found {len(safe_summaries)} summaries safe to push (doc content matches main)")
-                    # Track the files we're adding (for use after branch switch)
-                    files_to_add = list(safe_summaries)
-                    files_to_add.append(f"{index_relative_path}/{SUMMARIES_MANIFEST}")
-
-                    # Add only the safe summaries and the summaries manifest
-                    for summary_path in safe_summaries:
-                        run_command_safe(["git", "add", summary_path], check=False)
-                    # Also add the summaries manifest (stored at .doc-index/summaries_manifest.json)
-                    summaries_manifest_path = f"{index_relative_path}/{SUMMARIES_MANIFEST}"
-                    run_command_safe(["git", "add", summaries_manifest_path], check=False)
-                else:
-                    print(f"   No summaries safe to push, skipping commit")
-                    return False
-
-            # Check if there's actually anything staged
-            staged_result = run_command_safe(
-                ["git", "diff", "--cached", "--name-only"],
-                check=False
-            )
-            if not staged_result.stdout.strip():
-                print("No changes staged for commit")
+            gh_token = os.environ.get("GH_TOKEN")
+            if not gh_token:
+                print("Warning: GH_TOKEN not set, cannot create index PR")
                 return False
 
-            # Commit the indexes
-            commit_msg = "chore: Update documentation semantic indexes\n\nAuto-generated by code-to-docs action"
-            run_command_safe(
-                ["git", "commit", "-m", commit_msg],
-                check=True
-            )
-
-            # Push to the base/main branch so indexes are reusable across all PRs
-
-            # Get current branch to restore later
             current_branch_result = run_command_safe(
                 ["git", "rev-parse", "--abbrev-ref", "HEAD"],
                 check=True
             )
             current_branch = current_branch_result.stdout.strip()
 
-            if current_branch != base_branch:
-                print(f"Switching to {base_branch} to push {content_type}...")
+            temp_dir = tempfile.mkdtemp()
+            index_full_path = Path(repo_root) / index_relative_path
+            temp_index_path = Path(temp_dir) / ".doc-index-backup"
+            if index_full_path.exists():
+                shutil.copytree(index_full_path, temp_index_path)
 
-                # Save the .doc-index directory content BEFORE switching branches
-                # (because cherry-pick often fails and stash doesn't help since we already committed)
-                temp_dir = tempfile.mkdtemp()
-                index_full_path = Path(repo_root) / index_relative_path
-                temp_index_path = Path(temp_dir) / ".doc-index-backup"
-                if index_full_path.exists():
-                    shutil.copytree(index_full_path, temp_index_path)
+            run_command_safe(["git", "stash", "--include-untracked"], check=False)
 
-                # Stash any uncommitted changes
-                run_command_safe(["git", "stash", "--include-untracked"], check=False)
-
-                try:
-                    # Checkout base branch (create or reset local branch from origin)
-                    run_command_safe(["git", "fetch", "origin", base_branch], check=False)
-                    run_command_safe(["git", "checkout", "-B", base_branch, f"origin/{base_branch}"], check=True)
-
-                    # Restore our saved .doc-index directory (overwrites main's version with our updated version)
-                    if temp_index_path.exists():
-                        if index_full_path.exists():
-                            shutil.rmtree(index_full_path)
-                        shutil.copytree(temp_index_path, index_full_path)
-
-                    # Add files - respect the same selective logic we used on PR branch
-                    if add_all:
-                        run_command_safe(["git", "add", index_relative_path], check=True)
-                    else:
-                        # Add only the specific files we determined were safe
-                        for file_path in files_to_add:
-                            run_command_safe(["git", "add", file_path], check=False)
-                    run_command_safe(
-                        ["git", "commit", "-m", commit_msg],
-                        check=False  # May fail if no changes
-                    )
-
-                    # Push to base branch
-                    print(f"Pushing {content_type} to {base_branch}...")
-                    run_command_safe(
-                        ["git", "push", "origin", base_branch],
-                        check=True
-                    )
-
-                    print(f"✅ {content_type.capitalize()} committed and pushed to {base_branch}")
-                finally:
-                    # Always return to original branch and restore stash
-                    run_command_safe(["git", "checkout", current_branch], check=False)
-                    run_command_safe(["git", "stash", "pop"], check=False)
-                    shutil.rmtree(temp_dir, ignore_errors=True)
-            else:
-                # Already on base branch, just push
-                print(f"Pushing {content_type} to {base_branch}...")
+            try:
+                run_command_safe(["git", "fetch", "origin", base_branch], check=False)
                 run_command_safe(
-                    ["git", "push", "origin", base_branch],
+                    ["git", "checkout", "-B", INDEX_BRANCH, f"origin/{base_branch}"],
                     check=True
                 )
-                print(f"✅ {content_type.capitalize()} committed and pushed to {base_branch}")
-            return True
+
+                if temp_index_path.exists():
+                    if index_full_path.exists():
+                        shutil.rmtree(index_full_path)
+                    shutil.copytree(temp_index_path, index_full_path)
+
+                run_command_safe(["git", "add", index_relative_path], check=True)
+
+                staged_result = run_command_safe(
+                    ["git", "diff", "--cached", "--name-only"],
+                    check=False
+                )
+                if not staged_result.stdout.strip():
+                    print(f"No {content_type} changes to commit (already up to date)")
+                    return False
+
+                commit_msg = f"chore: Update documentation semantic {content_type}\n\nAuto-generated by code-to-docs action"
+                run_command_safe(["git", "commit", "-m", commit_msg], check=True)
+
+                print(f"Pushing {content_type} to branch {INDEX_BRANCH}...")
+                run_command_safe(
+                    ["git", "push", "--set-upstream", "origin", INDEX_BRANCH, "--force-with-lease"],
+                    check=True,
+                )
+
+                check_pr = run_command_safe(
+                    ["gh", "pr", "list", "--head", INDEX_BRANCH, "--state", "open", "--json", "number"],
+                    check=False,
+                    env={**os.environ, "GH_TOKEN": gh_token},
+                )
+                existing_pr = check_pr.stdout.strip() if check_pr.returncode == 0 else "[]"
+
+                if existing_pr and existing_pr != "[]":
+                    print(f"✅ Updated existing index PR (branch {INDEX_BRANCH})")
+                else:
+                    pr_body = (
+                        f"This PR updates documentation semantic {content_type}.\n\n"
+                        "These are auto-generated indexes and file summaries used by the "
+                        "code-to-docs action to speed up documentation file discovery.\n\n"
+                        "*Auto-generated by code-to-docs action*"
+                    )
+                    run_command_safe(
+                        [
+                            "gh", "pr", "create",
+                            "--title", f"chore: Update documentation semantic {content_type}",
+                            "--body", pr_body,
+                            "--base", base_branch,
+                            "--head", INDEX_BRANCH,
+                        ],
+                        check=True,
+                        env={**os.environ, "GH_TOKEN": gh_token},
+                    )
+                    print(f"✅ Created PR for {content_type} (branch {INDEX_BRANCH})")
+
+                return True
+
+            finally:
+                run_command_safe(["git", "checkout", current_branch], check=False)
+                run_command_safe(["git", "stash", "pop"], check=False)
+                shutil.rmtree(temp_dir, ignore_errors=True)
 
     except subprocess.CalledProcessError as e:
         print(f"Warning: Failed to commit {content_type}: {sanitize_output(str(e))}")
