@@ -16,8 +16,11 @@ RUN npm install -g @googleworkspace/cli
 # Install uv (Python package runner, needed for mcp-atlassian)
 RUN pip install --no-cache-dir -U uv
 
+# Install AsciiDoc validator (asciidoctor.js)
+RUN npm install -g @asciidoctor/core @asciidoctor/cli
+
 # Install Python dependencies
-RUN pip install --no-cache-dir -U openai mcp mcp-atlassian
+RUN pip install --no-cache-dir -U openai mcp mcp-atlassian markdown docutils
 
 # Set up working directory
 WORKDIR /app

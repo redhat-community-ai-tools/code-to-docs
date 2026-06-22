@@ -2,9 +2,9 @@
 File discovery and selection for documentation updates.
 
 This module handles finding which documentation files are relevant to a given
-code change. It provides AI-powered file selection (via batched parallel calls),
-long-file summarization, and an optimized two-stage discovery pipeline that uses
-semantic indexes to narrow candidates before asking the AI to pick exact files.
+code change. It provides AI-powered file selection via semantic indexes that
+identify relevant files directly from per-folder index descriptions, and a
+fallback full-scan path for repos without indexes.
 """
 
 import os
@@ -28,10 +28,8 @@ from doc_index import (
     fetch_indexes_from_main,
     build_all_indexes,
     update_indexes_if_needed,
-    find_relevant_areas_from_indexes,
-    get_files_in_areas,
+    find_relevant_files_from_indexes,
     commit_indexes_to_repo,
-    get_or_generate_summary,
 )
 
 
@@ -133,7 +131,7 @@ def get_file_content_or_summaries(line_threshold=300):
     return file_data
 
 _FILE_SELECTION_PROMPT_TEMPLATE = """
-    You are an ULTRA-CONSERVATIVE documentation assistant. Select ONLY files that DIRECTLY document the EXACT code being changed.
+    You are a precise documentation assistant. Select files that document the feature, component, or behavior being changed or extended in the diff.
 
     Git diff from this PR:
     {DIFF_PLACEHOLDER}
@@ -141,21 +139,19 @@ _FILE_SELECTION_PROMPT_TEMPLATE = """
     Documentation files to evaluate:
     {CONTEXT_PLACEHOLDER}
 
-    STRICT SELECTION RULES:
-    1. ONLY select files that document the EXACT code, module, or component being modified in the diff
-    2. DO NOT select files just because they mention related concepts or technologies
-    3. DO NOT select overview or index files unless absolutely necessary
-    4. Select the MINIMUM number of files necessary
-    5. When in doubt, DO NOT select the file
-    6. Prefer returning NONE over selecting uncertain files
+    SELECT a file if ANY of these apply:
+    1. The diff MODIFIES existing behavior that the file documents (docs would become incorrect)
+    2. The diff ADDS new functionality that falls within the scope of what the file documents (docs would become incomplete)
+    3. The diff CHANGES defaults, error messages, or output that the file references
 
-    AVOID COMMON OVER-SELECTION MISTAKES:
-    7. If a doc file mentions the same technology (e.g., a library, tool, or protocol) but for a DIFFERENT component or purpose, DO NOT select it
-    8. If a doc file is about USER-CONFIGURED items (e.g., custom configs, user containers, plugins) but the code change is about INTERNAL/SYSTEM behavior, DO NOT select it
-    9. If a doc file is for a different subsystem that happens to share dependencies with the changed code, DO NOT select it
-    10. Release notes and changelogs should ONLY be selected if explicitly requested or if the change is a breaking change
+    DO NOT select a file if:
+    4. The connection between the diff and the doc is only superficial (shared keywords but different context or component)
+    5. It is for a different subsystem that happens to share dependencies with the changed code
+    6. It is a release notes or changelog file (unless the change is breaking)
 
-    Return ONLY file paths (one per line) that DIRECTLY match the code changes.
+    When genuinely uncertain, DO NOT select.
+
+    Return ONLY file paths (one per line) that match the criteria above.
     If no files need updates, return "NONE".
     """
 
@@ -310,9 +306,9 @@ def find_relevant_files_optimized(diff):
     """
     Optimized file discovery using semantic indexes.
 
-    This is a two-stage approach:
-    1. Use indexes to find relevant documentation AREAS (1 API call)
-    2. Load files from those areas and use AI to pick exact files (1 API call)
+    Uses per-folder indexes (which include per-file descriptions) to identify
+    the exact files that need updating in a single LLM step — without loading
+    the actual file content for filtering.
 
     Falls back to full scan if indexes don't exist or AI requests it.
 
@@ -322,123 +318,29 @@ def find_relevant_files_optimized(diff):
     Returns:
         list: List of relevant file paths, or None to signal full scan needed
     """
-    # Try to fetch indexes from main branch if they don't exist locally
     fetch_indexes_from_main()
 
-    # Check if indexes exist
     indexes_changed = False
     if not indexes_exist():
         print("No indexes found. Building indexes first...")
         build_all_indexes()
         indexes_changed = True
     else:
-        # Update indexes for any changed docs
         updated = update_indexes_if_needed()
         if updated:
             print(f"Updated indexes for: {updated}")
             indexes_changed = True
 
-    # Stage 1: Find relevant AREAS using indexes (1 API call)
-    print("Finding relevant documentation areas from indexes...")
-    relevant_areas = find_relevant_areas_from_indexes(diff, get_client())
+    # Commit new/updated indexes so they're cached for future runs
+    if indexes_changed:
+        print("Committing indexes to repository...")
+        commit_indexes_to_repo(content_type="indexes")
 
-    if relevant_areas is None:
-        # AI requested full scan or error occurred
+    print("Finding relevant documentation files from indexes...")
+    relevant_files = find_relevant_files_from_indexes(diff, get_client())
+
+    if relevant_files is None:
         print("Falling back to full scan...")
         return None
-
-    if not relevant_areas:
-        print("No relevant areas found")
-        return []
-
-    # Stage 2: Get files from relevant areas
-    candidate_files = get_files_in_areas(relevant_areas)
-    print(f"Found {len(candidate_files)} candidate files in areas: {relevant_areas}")
-
-    if not candidate_files:
-        return []
-
-    # Load content/summaries for candidate files only (parallel for speed)
-    file_previews = []
-    files_needing_summary = []
-    files_with_content = []
-
-    # First pass: identify which files need summaries
-    for file_path in candidate_files:
-        try:
-            content = Path(file_path).read_text(encoding='utf-8')
-            line_count = len(content.split('\n'))
-
-            if line_count > 300:
-                files_needing_summary.append((file_path, content))
-            else:
-                files_with_content.append((file_path, content))
-        except Exception as e:
-            print(f"Skipping {file_path}: {sanitize_output(str(e))}")
-
-    # Generate summaries in parallel for long files (with caching)
-    summaries_generated = False
-    if files_needing_summary:
-        # Check how many need actual generation vs cached
-        cached_count = 0
-        to_generate = []
-
-        for file_path, content in files_needing_summary:
-            from doc_index import load_cached_summary
-            cached = load_cached_summary(file_path)
-            if cached:
-                file_previews.append((file_path, cached))
-                cached_count += 1
-            else:
-                to_generate.append((file_path, content))
-
-        if cached_count > 0:
-            print(f"Using {cached_count} cached summaries")
-
-        if to_generate:
-            print(f"Generating {len(to_generate)} new summaries in parallel...")
-            summaries_generated = True
-
-            def generate_summary_task(args):
-                file_path, content = args
-                try:
-                    # Generate and cache the summary
-                    summary = get_or_generate_summary(file_path, content, summarize_long_file)
-                    return (file_path, summary)
-                except Exception as e:
-                    print(f"Error summarizing {file_path}: {sanitize_output(str(e))}")
-                    # Fallback to full content — downstream prompt handles truncation
-                    return (file_path, content)
-
-            with ThreadPoolExecutor(max_workers=5) as executor:
-                futures = {executor.submit(generate_summary_task, args): args[0]
-                          for args in to_generate}
-                for future in as_completed(futures):
-                    result = future.result()
-                    if result:
-                        file_previews.append(result)
-
-    # Add files that didn't need summaries
-    file_previews.extend(files_with_content)
-
-    # Commit indexes and summaries in a single push to avoid the branch
-    # going stale between two separate pushes
-    if indexes_changed or summaries_generated:
-        content_parts = []
-        if indexes_changed:
-            content_parts.append("indexes")
-        if summaries_generated:
-            content_parts.append("summaries")
-        content_label = " and ".join(content_parts)
-        print(f"Committing {content_label} to repository...")
-        commit_indexes_to_repo(content_type=content_label)
-
-    if not file_previews:
-        return []
-
-    # Stage 3: Use AI to pick exact files from candidates (1 API call typically)
-    # Since we have fewer files now, this is much faster
-    print(f"AI selecting exact files from {len(file_previews)} candidates...")
-    relevant_files = ask_ai_for_relevant_files(diff, file_previews)
 
     return relevant_files

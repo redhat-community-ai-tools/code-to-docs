@@ -20,7 +20,6 @@ from doc_index import (
     load_index,
     load_all_indexes,
     indexes_exist,
-    get_files_in_areas,
     get_summaries_dir,
     get_summary_filename,
     load_summaries_manifest,
@@ -117,9 +116,12 @@ class TestGetDocsRoot:
 
 class TestGetDocFolders:
     def test_finds_doc_folders(self, doc_tree):
+        from doc_index import ROOT_LEVEL_FOLDER
         folders = get_doc_folders(docs_root=doc_tree)
-        assert "guides" in folders
+        assert "guides/operations" in folders
+        assert "guides/configuration" in folders
         assert "tutorials" in folders
+        assert ROOT_LEVEL_FOLDER in folders
 
     def test_skips_hidden_dirs(self, doc_tree):
         folders = get_doc_folders(docs_root=doc_tree)
@@ -148,12 +150,17 @@ class TestGetDocFolders:
 
 
 class TestGetDocsInFolder:
-    def test_finds_rst_files(self, doc_tree):
-        docs = get_docs_in_folder("guides", docs_root=doc_tree)
+    def test_finds_direct_rst_files(self, doc_tree):
+        docs = get_docs_in_folder("guides/operations", docs_root=doc_tree)
         names = [d.name for d in docs]
         assert "health-checks.rst" in names
         assert "monitoring.rst" in names
-        assert "config-ref.rst" in names
+
+    def test_does_not_recurse_into_subfolders(self, doc_tree):
+        docs = get_docs_in_folder("guides", docs_root=doc_tree)
+        names = [d.name for d in docs]
+        assert "health-checks.rst" not in names
+        assert "config-ref.rst" not in names
 
     def test_finds_md_files(self, doc_tree):
         docs = get_docs_in_folder("tutorials", docs_root=doc_tree)
@@ -209,19 +216,19 @@ class TestManifest:
 
 class TestGetFolderDocHashes:
     def test_returns_hashes_for_all_docs(self, doc_tree):
-        hashes = get_folder_doc_hashes("guides", docs_root=doc_tree)
-        assert len(hashes) == 3  # health-checks.rst, monitoring.rst, config-ref.rst
+        hashes = get_folder_doc_hashes("guides/operations", docs_root=doc_tree)
+        assert len(hashes) == 2  # health-checks.rst, monitoring.rst
 
     def test_hash_values_are_hex(self, doc_tree):
-        hashes = get_folder_doc_hashes("guides", docs_root=doc_tree)
+        hashes = get_folder_doc_hashes("guides/operations", docs_root=doc_tree)
         for h in hashes.values():
             assert len(h) == 64  # SHA256 hex length
             assert all(c in "0123456789abcdef" for c in h)
 
     def test_keys_are_relative_paths(self, doc_tree):
-        hashes = get_folder_doc_hashes("guides", docs_root=doc_tree)
+        hashes = get_folder_doc_hashes("guides/operations", docs_root=doc_tree)
         for key in hashes:
-            assert key.startswith("guides/")
+            assert key.startswith("guides/operations/")
 
     def test_empty_folder(self, tmp_path):
         (tmp_path / "empty").mkdir()
@@ -301,34 +308,6 @@ class TestIndexSaveLoad:
     def test_indexes_exist_empty_dir(self, tmp_path):
         (tmp_path / INDEX_DIR).mkdir()
         assert indexes_exist(docs_root=tmp_path) is False
-
-
-# ── get_files_in_areas ───────────────────────────────────────────────────────
-
-
-class TestGetFilesInAreas:
-    def test_single_area(self, doc_tree):
-        files = get_files_in_areas(["guides"], docs_root=doc_tree)
-        assert any("health-checks.rst" in f for f in files)
-        assert any("config-ref.rst" in f for f in files)
-
-    def test_multiple_areas(self, doc_tree):
-        files = get_files_in_areas(["guides", "tutorials"], docs_root=doc_tree)
-        assert any("health-checks.rst" in f for f in files)
-        assert any("getting-started.md" in f for f in files)
-
-    def test_includes_root_level_docs(self, doc_tree):
-        files = get_files_in_areas(["guides"], docs_root=doc_tree)
-        assert "overview.rst" in files or any("overview.rst" in f for f in files)
-
-    def test_nonexistent_area(self, doc_tree):
-        files = get_files_in_areas(["nonexistent"], docs_root=doc_tree)
-        # Should still include root-level docs
-        assert isinstance(files, list)
-
-    def test_deduplicated(self, doc_tree):
-        files = get_files_in_areas(["guides", "guides"], docs_root=doc_tree)
-        assert len(files) == len(set(files))
 
 
 # ── Summary filename ─────────────────────────────────────────────────────────

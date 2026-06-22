@@ -27,6 +27,27 @@ You can guide how the AI generates doc updates by adding instructions in your `[
 config-ref.rst: only update the CLI usage example
 ```
 
+## Persistent Style Guidelines
+
+You can define repository-level documentation style rules that are automatically applied to every AI-generated update. Create the following file in your repository root:
+
+- **`.code-to-docs/style.md`** — Freeform Markdown/prose, passed to the LLM as-is
+
+The action auto-detects this file. To use a custom path instead, set the `style-config-path` action input.
+
+**Example `.code-to-docs/style.md`:**
+```markdown
+# Documentation Style
+
+- Use **active voice** and a professional tone
+- Use sentence case for headings
+- Use dashes for bullet lists
+- Keep paragraphs short
+- Use present tense
+```
+
+Per-comment instructions (`[update-docs] keep changes minimal`) continue to work alongside the persistent config, appearing as additional guidance after the style guidelines. If per-comment or per-file instructions contradict the style guidelines, the reviewer's instructions take precedence.
+
 ## How It Works
 
 1. **Triggered by PR Comments** - When someone comments `[review-docs]`, `[update-docs]`, or `[review-feature]` on a Pull Request
@@ -111,6 +132,7 @@ jobs:
           jira-api-token: ${{ secrets.JIRA_API_TOKEN }}
           google-sa-key: ${{ secrets.GOOGLE_SA_KEY }}
           max-context-chars: ${{ secrets.MAX_CONTEXT_CHARS }}
+          style-config-path: '.code-to-docs/style.md'
 ```
 
 ### 2. Configure Secrets
@@ -131,6 +153,14 @@ Add these in **Settings → Secrets → Actions**:
 | `JIRA_API_TOKEN` | _(Optional, for `[review-feature]`)_ Jira API token ([create here](https://id.atlassian.com/manage-profile/security/api-tokens)) |
 | `GOOGLE_SA_KEY` | _(Optional, for `[review-feature]`)_ Google service account JSON key for fetching Google Docs. Docs must be shared with the service account email. |
 | `MAX_CONTEXT_CHARS` | _(Optional)_ Maximum characters for LLM prompt content (default: `400000`, ~100K tokens). Decrease for models with smaller context windows (e.g., `32000` for an 8K-token model). |
+
+### 3. Optional Action Inputs
+
+These are set as `with:` parameters in the workflow step (not as secrets):
+
+| Input | Description |
+|-------|-------------|
+| `style-config-path` | _(Optional)_ Path to a Markdown style configuration file (`.md`) containing documentation style guidelines. If not set, auto-detects `.code-to-docs/style.md`. |
 
 ### Supported Model Backends
 
@@ -174,9 +204,8 @@ The `[review-feature]` comment includes content from the Jira ticket and linked 
 
 ## Performance Optimization
 
-The action uses a two-stage caching system stored in `.doc-index/`:
+The action builds semantic indexes stored in `.doc-index/`:
 
-1. **Folder Indexes** - AI-generated semantic summaries of each documentation folder, used to quickly identify relevant areas without scanning all files
-2. **File Summaries** - Cached summaries of long documentation files, reused across runs
+- **Folder Indexes** — AI-generated summaries of each documentation folder, including per-file descriptions. The LLM selects relevant files directly from these descriptions without loading the actual file content, reducing API calls and runtime.
 
-These are automatically committed to your main branch and shared across all PRs, reducing runtime from ~20 minutes to ~4 minutes on large projects.
+Indexes are automatically committed to your main branch and shared across all PRs, reducing runtime from ~20 minutes to ~4 minutes on large projects.

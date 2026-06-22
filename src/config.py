@@ -3,13 +3,18 @@ Centralized configuration for code-to-docs GitHub Action.
 
 All environment variable access for configuration lives here.
 Runtime env vars (GH_TOKEN, PR_NUMBER, etc.) are still read where needed.
+Also handles loading persistent style guidelines from .code-to-docs/style.md
+or a user-specified STYLE_CONFIG_PATH.
 """
 
 import os
 import re
+from pathlib import Path
 
 import openai
 from openai import OpenAI
+
+from security_utils import sanitize_output, validate_file_path
 
 
 def get_client():
@@ -124,6 +129,60 @@ def truncate_diff(diff_text, max_chars, label="diff"):
     pct = len(result) * 100 // len(diff_text)
     print(f"Warning: Truncated {label} from {len(diff_text):,} to ~{len(result):,} chars ({pct}% retained, {included}/{total_files} files)")
     return result + suffix
+
+
+# =============================================================================
+# STYLE CONFIGURATION
+# =============================================================================
+
+_AUTO_DETECT_PATHS = [
+    ".code-to-docs/style.md",
+]
+
+_ALLOWED_STYLE_EXTENSIONS = (".md",)
+
+
+def load_style_config(config_path=None):
+    """Load documentation style guidelines from a config file."""
+    if not config_path:
+        config_path = os.environ.get("STYLE_CONFIG_PATH", "")
+
+    if config_path:
+        if not validate_file_path(config_path):
+            print(f"Warning: Style config path rejected by security check: '{config_path}', skipping")
+            return ""
+        if not config_path.endswith(_ALLOWED_STYLE_EXTENSIONS):
+            print(f"Warning: Style config must be a .md file, got '{config_path}', skipping")
+            return ""
+        config_file = Path(config_path)
+        if not config_file.is_file():
+            print(f"Warning: Style config not found at '{config_path}', skipping")
+            return ""
+    else:
+        config_file = None
+        for candidate in _AUTO_DETECT_PATHS:
+            p = Path(candidate)
+            if p.is_file() and validate_file_path(str(p)):
+                config_file = p
+                break
+        if config_file is None:
+            return ""
+
+    config_path_str = str(config_file)
+    print(f"Loading style config from: {config_path_str}")
+
+    try:
+        raw = config_file.read_text(encoding="utf-8").strip()
+    except Exception as e:
+        print(f"Warning: Could not read style config '{config_path_str}': {sanitize_output(str(e))}")
+        return ""
+
+    if not raw:
+        print(f"Warning: Style config '{config_path_str}' is empty, skipping")
+        return ""
+
+    print(f"Loaded style config ({len(raw):,} chars)")
+    return raw
 
 
 def check_context_error(e):
