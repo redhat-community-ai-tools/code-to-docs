@@ -326,6 +326,13 @@ def main():
                 docs_subfolder = os.environ.get("DOCS_SUBFOLDER")
                 if docs_subfolder:
                     print("Same-repo scenario: preparing for PR creation...")
+
+                    # Save modified file contents before switching branches
+                    saved_contents = {}
+                    for file_path in modified_files:
+                        full_path = f"{docs_subfolder}/{file_path}" if not file_path.startswith(docs_subfolder) else file_path
+                        saved_contents[full_path] = Path(file_path).read_text(encoding="utf-8")
+
                     os.chdir("..")
                     base_branch = os.environ.get("DOCS_BASE_BRANCH", "main")
                     branch_name = get_branch_name(os.environ.get("PR_NUMBER"))
@@ -337,12 +344,11 @@ def main():
                         check=True,
                     )
 
-                    # Re-apply the doc file changes on the clean base
-                    for file_path in modified_files:
-                        full_path = f"{docs_subfolder}/{file_path}" if not file_path.startswith(docs_subfolder) else file_path
-                        run_command_safe(["git", "checkout", "HEAD@{1}", "--", full_path], check=True)
+                    # Write saved doc contents onto the clean base
+                    for full_path, content in saved_contents.items():
+                        Path(full_path).write_text(content, encoding="utf-8")
 
-                    docs_files = [f"{docs_subfolder}/{f}" if not f.startswith(docs_subfolder) else f for f in modified_files]
+                    docs_files = list(saved_contents.keys())
                     push_and_open_pr(docs_files, commit_info)
                 else:
                     print("Separate-repo scenario: creating PR...")
