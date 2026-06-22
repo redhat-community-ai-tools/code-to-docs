@@ -327,11 +327,21 @@ def main():
                 if docs_subfolder:
                     print("Same-repo scenario: preparing for PR creation...")
                     os.chdir("..")
+                    base_branch = os.environ.get("DOCS_BASE_BRANCH", "main")
                     branch_name = get_branch_name(os.environ.get("PR_NUMBER"))
-                    try:
-                        run_command_safe(["git", "checkout", "-b", branch_name], check=True)
-                    except subprocess.CalledProcessError:
-                        run_command_safe(["git", "checkout", branch_name], check=True)
+
+                    # Branch from the base branch so the docs PR only contains doc changes
+                    run_command_safe(["git", "fetch", "origin", base_branch], check=False)
+                    run_command_safe(
+                        ["git", "checkout", "-B", branch_name, f"origin/{base_branch}"],
+                        check=True,
+                    )
+
+                    # Re-apply the doc file changes on the clean base
+                    for file_path in modified_files:
+                        full_path = f"{docs_subfolder}/{file_path}" if not file_path.startswith(docs_subfolder) else file_path
+                        run_command_safe(["git", "checkout", "HEAD@{1}", "--", full_path], check=True)
+
                     docs_files = [f"{docs_subfolder}/{f}" if not f.startswith(docs_subfolder) else f for f in modified_files]
                     push_and_open_pr(docs_files, commit_info)
                 else:
