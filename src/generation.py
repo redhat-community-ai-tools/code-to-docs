@@ -37,7 +37,7 @@ def strip_code_fences(text):
     fence_pattern = re.compile(
         r'^```(?:markdown|md|adoc|asciidoc|rst|restructuredtext)?\s*\n'
         r'(.*?)'
-        r'\n```\s*$',
+        r'\n?```\s*$',
         re.DOTALL,
     )
     match = fence_pattern.match(stripped)

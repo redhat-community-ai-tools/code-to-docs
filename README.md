@@ -132,6 +132,7 @@ jobs:
           jira-api-token: ${{ secrets.JIRA_API_TOKEN }}
           google-sa-key: ${{ secrets.GOOGLE_SA_KEY }}
           max-context-chars: ${{ secrets.MAX_CONTEXT_CHARS }}
+          style-config-path: '.code-to-docs/style.md'
 ```
 
 ### 2. Configure Secrets
