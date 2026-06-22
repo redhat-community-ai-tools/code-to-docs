@@ -143,7 +143,7 @@ def get_docs_in_folder(folder, docs_root=None):
     
     if folder_path.exists():
         for ext in ["*.rst", "*.md", "*.adoc"]:
-            docs.extend(folder_path.rglob(ext))
+            docs.extend(folder_path.glob(ext))
     
     return docs
 

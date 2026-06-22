@@ -149,12 +149,17 @@ class TestGetDocFolders:
 
 
 class TestGetDocsInFolder:
-    def test_finds_rst_files(self, doc_tree):
-        docs = get_docs_in_folder("guides", docs_root=doc_tree)
+    def test_finds_direct_rst_files(self, doc_tree):
+        docs = get_docs_in_folder("guides/operations", docs_root=doc_tree)
         names = [d.name for d in docs]
         assert "health-checks.rst" in names
         assert "monitoring.rst" in names
-        assert "config-ref.rst" in names
+
+    def test_does_not_recurse_into_subfolders(self, doc_tree):
+        docs = get_docs_in_folder("guides", docs_root=doc_tree)
+        names = [d.name for d in docs]
+        assert "health-checks.rst" not in names
+        assert "config-ref.rst" not in names
 
     def test_finds_md_files(self, doc_tree):
         docs = get_docs_in_folder("tutorials", docs_root=doc_tree)
@@ -210,19 +215,19 @@ class TestManifest:
 
 class TestGetFolderDocHashes:
     def test_returns_hashes_for_all_docs(self, doc_tree):
-        hashes = get_folder_doc_hashes("guides", docs_root=doc_tree)
-        assert len(hashes) == 3  # health-checks.rst, monitoring.rst, config-ref.rst
+        hashes = get_folder_doc_hashes("guides/operations", docs_root=doc_tree)
+        assert len(hashes) == 2  # health-checks.rst, monitoring.rst
 
     def test_hash_values_are_hex(self, doc_tree):
-        hashes = get_folder_doc_hashes("guides", docs_root=doc_tree)
+        hashes = get_folder_doc_hashes("guides/operations", docs_root=doc_tree)
         for h in hashes.values():
             assert len(h) == 64  # SHA256 hex length
             assert all(c in "0123456789abcdef" for c in h)
 
     def test_keys_are_relative_paths(self, doc_tree):
-        hashes = get_folder_doc_hashes("guides", docs_root=doc_tree)
+        hashes = get_folder_doc_hashes("guides/operations", docs_root=doc_tree)
         for key in hashes:
-            assert key.startswith("guides/")
+            assert key.startswith("guides/operations/")
 
     def test_empty_folder(self, tmp_path):
         (tmp_path / "empty").mkdir()
