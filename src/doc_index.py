@@ -256,7 +256,8 @@ Generate a structured index in the following format:
 [2-3 sentences describing what this documentation area covers and its purpose]
 
 ## Files Summary
-[For each file, provide: filename and 1-2 sentence description of its purpose]
+[For each file, provide: filename and 1-2 sentence description of its purpose.
+List each file individually — do NOT group files or use wildcards.]
 
 ## Code Changes That Would Require Documentation Updates
 [List specific types of code changes, features, components, or behaviors that would require updating these docs. Be comprehensive and specific - think about what a developer might change in the codebase that would make this documentation outdated.]
@@ -362,17 +363,14 @@ def build_index_for_folder(folder, client=None):
         return None
 
     budget = get_max_context_chars()
-    # Measure actual prompt overhead (template without docs)
     prompt_overhead = len(_build_index_prompt(folder, ""))
 
-    # Check if all files fit in a single call
     total_content_size = sum(
         len(f"### File: {d['path']}\n\n{d['content']}") + 10
         for d in docs_content
     )
 
     if total_content_size + prompt_overhead <= budget:
-        # All files fit — single call with full content
         docs_text = "\n\n---\n\n".join([
             f"### File: {d['path']}\n\n{d['content']}"
             for d in docs_content
@@ -923,7 +921,7 @@ DO NOT SELECT files for:
 
 When in doubt, do NOT include.
 
-Return file paths exactly as they appear in the index (e.g. "folder/filename.md").
+Return EXACT file paths as they appear in the index. Do NOT use wildcards or glob patterns — list each file individually.
 
 IMPORTANT: You MUST respond with a valid JSON array. No other text or explanation.
 - If files need updates: ["folder/file1.md", "folder/file2.md"]
@@ -941,6 +939,18 @@ You MUST output something. An empty response is not valid - output [] instead.
 
     # Deduplicate while preserving order
     all_relevant_files = list(dict.fromkeys(all_relevant_files))
+
+    # Filter out invalid paths (glob patterns, non-doc extensions)
+    valid_files = []
+    for f in all_relevant_files:
+        if any(c in f for c in ['*', '?', '[']):
+            print(f"Skipping invalid path (glob pattern): {f}")
+            continue
+        if not (f.endswith('.md') or f.endswith('.rst') or f.endswith('.adoc')):
+            print(f"Skipping non-doc file: {f}")
+            continue
+        valid_files.append(f)
+    all_relevant_files = valid_files
 
     if not all_relevant_files:
         print("AI found no relevant documentation files")
