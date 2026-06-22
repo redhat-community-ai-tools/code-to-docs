@@ -392,7 +392,11 @@ def main():
                             confirm_parts.append("")
                             confirm_parts.append("</details>")
                             confirm_parts.append("")
-                    confirm_parts.append("A docs PR has been created/updated with these changes.")
+                    docs_subfolder = os.environ.get("DOCS_SUBFOLDER")
+                    if docs_subfolder:
+                        confirm_parts.append("Doc updates have been committed to this PR.")
+                    else:
+                        confirm_parts.append("A docs PR has been created/updated with these changes.")
                 confirm_body = "\n".join(confirm_parts)
                 confirm_file = Path("/tmp/update_confirm.md")
                 confirm_file.write_text(confirm_body, encoding="utf-8")
