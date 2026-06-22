@@ -896,24 +896,19 @@ DOCUMENTATION AREAS TO EVALUATE (batch {batch_num}/{total_batches}):
 {batch_indexes}
 
 TASK:
-From the areas listed above, identify ONLY folders whose documentation would become FACTUALLY INCORRECT without an update.
+From the areas listed above, identify folders whose documentation would become INCORRECT or INCOMPLETE without an update.
 
-START WITH THE ASSUMPTION: No documentation needs updating. This is true for most code changes.
-Your job is to find EXCEPTIONS to this rule - cases where docs would become WRONG.
-
-BEFORE selecting ANY folder, you MUST be able to answer YES to ALL of these:
-1. Based on the index, does this folder document behavior that this code change DIRECTLY modifies?
-2. Would the documented instructions/information become WRONG after this change?
-3. Can I identify from the index summary WHAT SPECIFICALLY would become incorrect?
-
-If you cannot answer YES to all three → return []
+SELECT a folder if ANY of these apply:
+1. The diff MODIFIES existing behavior that the folder documents (docs would become incorrect)
+2. The diff ADDS new functionality that falls within the scope of what the folder documents (docs would become incomplete)
+3. The diff CHANGES defaults, error messages, or output that the folder references
 
 DO NOT SELECT folders for:
-- Code that is "related to" or "used by" the documented component
-- Changes to implementation details that don't affect documented behavior
-- Changes where the documentation is still technically accurate
+- Code that is merely "related to" or "used by" the documented component without changing or extending its documented scope
+- Changes to implementation internals that don't affect user-facing behavior or configuration
+- Changes where the documentation is still both accurate and complete
 
-When in doubt, do NOT include.
+When genuinely uncertain, do NOT include.
 
 
 IMPORTANT: You MUST respond with a valid JSON array. No other text or explanation.

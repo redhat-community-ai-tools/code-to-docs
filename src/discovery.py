@@ -133,7 +133,7 @@ def get_file_content_or_summaries(line_threshold=300):
     return file_data
 
 _FILE_SELECTION_PROMPT_TEMPLATE = """
-    You are an ULTRA-CONSERVATIVE documentation assistant. Select ONLY files that DIRECTLY document the EXACT code being changed.
+    You are a precise documentation assistant. Select files that document the feature, component, or behavior being changed or extended in the diff.
 
     Git diff from this PR:
     {DIFF_PLACEHOLDER}
@@ -141,21 +141,19 @@ _FILE_SELECTION_PROMPT_TEMPLATE = """
     Documentation files to evaluate:
     {CONTEXT_PLACEHOLDER}
 
-    STRICT SELECTION RULES:
-    1. ONLY select files that document the EXACT code, module, or component being modified in the diff
-    2. DO NOT select files just because they mention related concepts or technologies
-    3. DO NOT select overview or index files unless absolutely necessary
-    4. Select the MINIMUM number of files necessary
-    5. When in doubt, DO NOT select the file
-    6. Prefer returning NONE over selecting uncertain files
+    SELECT a file if ANY of these apply:
+    1. The diff MODIFIES existing behavior that the file documents (docs would become incorrect)
+    2. The diff ADDS new functionality that falls within the scope of what the file documents (docs would become incomplete)
+    3. The diff CHANGES defaults, error messages, or output that the file references
 
-    AVOID COMMON OVER-SELECTION MISTAKES:
-    7. If a doc file mentions the same technology (e.g., a library, tool, or protocol) but for a DIFFERENT component or purpose, DO NOT select it
-    8. If a doc file is about USER-CONFIGURED items (e.g., custom configs, user containers, plugins) but the code change is about INTERNAL/SYSTEM behavior, DO NOT select it
-    9. If a doc file is for a different subsystem that happens to share dependencies with the changed code, DO NOT select it
-    10. Release notes and changelogs should ONLY be selected if explicitly requested or if the change is a breaking change
+    DO NOT select a file if:
+    4. The connection between the diff and the doc is only superficial (shared keywords but different context or component)
+    5. It is for a different subsystem that happens to share dependencies with the changed code
+    6. It is a release notes or changelog file (unless the change is breaking)
 
-    Return ONLY file paths (one per line) that DIRECTLY match the code changes.
+    When genuinely uncertain, DO NOT select.
+
+    Return ONLY file paths (one per line) that match the criteria above.
     If no files need updates, return "NONE".
     """
 
