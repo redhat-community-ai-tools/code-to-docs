@@ -1052,7 +1052,7 @@ def get_files_in_areas(areas, docs_root=None):
         area_path = docs_root / area
         if area_path.exists():
             for ext in ["*.rst", "*.md", "*.adoc"]:
-                for f in area_path.rglob(ext):
+                for f in area_path.glob(ext):
                     # Return path relative to docs_root for consistency
                     try:
                         rel_path = f.relative_to(docs_root)

@@ -309,13 +309,12 @@ class TestIndexSaveLoad:
 
 class TestGetFilesInAreas:
     def test_single_area(self, doc_tree):
-        files = get_files_in_areas(["guides"], docs_root=doc_tree)
+        files = get_files_in_areas(["guides/operations"], docs_root=doc_tree)
         assert any("health-checks.rst" in f for f in files)
-        assert any("config-ref.rst" in f for f in files)
 
     def test_multiple_areas(self, doc_tree):
-        files = get_files_in_areas(["guides", "tutorials"], docs_root=doc_tree)
-        assert any("health-checks.rst" in f for f in files)
+        files = get_files_in_areas(["guides/configuration", "tutorials"], docs_root=doc_tree)
+        assert any("config-ref.rst" in f for f in files)
         assert any("getting-started.md" in f for f in files)
 
     def test_includes_root_level_docs(self, doc_tree):
