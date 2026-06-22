@@ -132,6 +132,7 @@ jobs:
           jira-api-token: ${{ secrets.JIRA_API_TOKEN }}
           google-sa-key: ${{ secrets.GOOGLE_SA_KEY }}
           max-context-chars: ${{ secrets.MAX_CONTEXT_CHARS }}
+          style-config-path: '.code-to-docs/style.md'
 ```
 
 ### 2. Configure Secrets
@@ -203,9 +204,8 @@ The `[review-feature]` comment includes content from the Jira ticket and linked 
 
 ## Performance Optimization
 
-The action uses a two-stage caching system stored in `.doc-index/`:
+The action builds semantic indexes stored in `.doc-index/`:
 
-1. **Folder Indexes** - AI-generated semantic summaries of each documentation folder, used to quickly identify relevant areas without scanning all files
-2. **File Summaries** - Cached summaries of long documentation files, reused across runs
+- **Folder Indexes** — AI-generated summaries of each documentation folder, including per-file descriptions. The LLM selects relevant files directly from these descriptions without loading the actual file content, reducing API calls and runtime.
 
-These are automatically committed to your main branch and shared across all PRs, reducing runtime from ~20 minutes to ~4 minutes on large projects.
+Indexes are automatically committed to your main branch and shared across all PRs, reducing runtime from ~20 minutes to ~4 minutes on large projects.

@@ -329,7 +329,7 @@ def main():
                     os.chdir("..")
                     docs_files = [f"{docs_subfolder}/{f}" if not f.startswith(docs_subfolder) else f for f in modified_files]
 
-                    pr_head = os.environ.get("PR_HEAD_SHA", "")
+                    pr_head_ref = os.environ.get("PR_HEAD_SHA", "")
                     commit_msg = "docs: update documentation based on code changes"
                     if commit_info:
                         commit_msg += f"\n\nAssisted-by: code-to-docs AI"
@@ -338,12 +338,16 @@ def main():
                     run_command_safe(["git", "commit", "-m", commit_msg], check=True)
 
                     gh_token = os.environ.get("GH_TOKEN")
-                    if gh_token:
+                    if not gh_token:
+                        print("Warning: GH_TOKEN not set, doc updates committed locally but not pushed")
+                    elif not pr_head_ref:
+                        print("Warning: PR_HEAD_SHA not set, cannot determine target branch for push")
+                    else:
                         run_command_safe(
-                            ["git", "push", "origin", f"HEAD:{pr_head}"],
+                            ["git", "push", "origin", f"HEAD:{pr_head_ref}"],
                             check=True,
                         )
-                        print(f"✅ Pushed doc updates to PR branch ({pr_head})")
+                        print(f"✅ Pushed doc updates to PR branch ({pr_head_ref})")
                 else:
                     print("Separate-repo scenario: creating PR...")
                     push_and_open_pr(modified_files, commit_info)

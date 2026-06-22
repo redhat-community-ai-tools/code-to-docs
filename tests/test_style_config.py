@@ -164,35 +164,39 @@ class TestValidateFormat:
 
 
 class TestRetryLoop:
+    @patch("generation.validate_format")
     @patch("generation.get_client")
     @patch("generation.get_model_name", return_value="test-model")
     @patch("generation.get_max_context_chars", return_value=400_000)
-    def test_retries_on_invalid_format_then_succeeds(self, mock_budget, mock_model, mock_client):
-        invalid_output = "```markdown\n# Title\n\nContent\n```"
-        valid_output = "# Title\n\nContent"
+    def test_retries_on_invalid_format_then_succeeds(self, mock_budget, mock_model, mock_client, mock_validate):
+        # First call: initial generation returns content that fails validation
+        # Second call: retry returns content that passes validation
+        mock_response_1 = MagicMock()
+        mock_response_1.choices = [MagicMock()]
+        mock_response_1.choices[0].message.content = "Bad RST content"
 
-        mock_response_invalid = MagicMock()
-        mock_response_invalid.choices = [MagicMock()]
-        mock_response_invalid.choices[0].message.content = invalid_output
-
-        mock_response_valid = MagicMock()
-        mock_response_valid.choices = [MagicMock()]
-        mock_response_valid.choices[0].message.content = valid_output
+        mock_response_2 = MagicMock()
+        mock_response_2.choices = [MagicMock()]
+        mock_response_2.choices[0].message.content = "Fixed RST content"
 
         client = MagicMock()
-        client.chat.completions.create.side_effect = [mock_response_invalid, mock_response_valid]
+        client.chat.completions.create.side_effect = [mock_response_1, mock_response_2]
         mock_client.return_value = client
+
+        # validate_format: fail on first content, pass on second
+        mock_validate.side_effect = [
+            (False, "RST validation errors: bad underline"),
+            (True, ""),
+        ]
 
         from generation import ask_ai_for_updated_content
         result = ask_ai_for_updated_content(
             diff="diff --git a/foo.py\n+new line",
-            file_path="docs/guide.md",
-            current_content="# Title\n\nOld content",
+            file_path="docs/guide.rst",
+            current_content="Title\n=====\n\nOld content",
         )
-        # The fence-stripped output should be valid, so no retry needed
-        # (strip_code_fences handles this before validate_format)
-        assert "# Title" in result
-        assert "```" not in result
+        assert result.strip() == "Fixed RST content"
+        assert client.chat.completions.create.call_count == 2
 
     @patch("generation.get_client")
     @patch("generation.get_model_name", return_value="test-model")

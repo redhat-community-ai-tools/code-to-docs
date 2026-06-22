@@ -20,7 +20,6 @@ from doc_index import (
     load_index,
     load_all_indexes,
     indexes_exist,
-    get_files_in_areas,
     get_summaries_dir,
     get_summary_filename,
     load_summaries_manifest,
@@ -309,39 +308,6 @@ class TestIndexSaveLoad:
     def test_indexes_exist_empty_dir(self, tmp_path):
         (tmp_path / INDEX_DIR).mkdir()
         assert indexes_exist(docs_root=tmp_path) is False
-
-
-# ── get_files_in_areas ───────────────────────────────────────────────────────
-
-
-class TestGetFilesInAreas:
-    def test_single_area(self, doc_tree):
-        files = get_files_in_areas(["guides/operations"], docs_root=doc_tree)
-        assert any("health-checks.rst" in f for f in files)
-
-    def test_multiple_areas(self, doc_tree):
-        files = get_files_in_areas(["guides/configuration", "tutorials"], docs_root=doc_tree)
-        assert any("config-ref.rst" in f for f in files)
-        assert any("getting-started.md" in f for f in files)
-
-    def test_includes_root_level_docs_when_selected(self, doc_tree):
-        from doc_index import ROOT_LEVEL_FOLDER
-        files = get_files_in_areas([ROOT_LEVEL_FOLDER], docs_root=doc_tree)
-        assert any("overview.rst" in f for f in files)
-        assert any("README.md" in f for f in files)
-
-    def test_excludes_root_level_docs_when_not_selected(self, doc_tree):
-        files = get_files_in_areas(["guides/operations"], docs_root=doc_tree)
-        assert not any("overview.rst" in f for f in files)
-
-    def test_nonexistent_area(self, doc_tree):
-        files = get_files_in_areas(["nonexistent"], docs_root=doc_tree)
-        assert isinstance(files, list)
-        assert len(files) == 0
-
-    def test_deduplicated(self, doc_tree):
-        files = get_files_in_areas(["guides", "guides"], docs_root=doc_tree)
-        assert len(files) == len(set(files))
 
 
 # ── Summary filename ─────────────────────────────────────────────────────────
