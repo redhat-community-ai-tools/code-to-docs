@@ -2,9 +2,9 @@
 File discovery and selection for documentation updates.
 
 This module handles finding which documentation files are relevant to a given
-code change. It provides AI-powered file selection (via batched parallel calls),
-long-file summarization, and an optimized two-stage discovery pipeline that uses
-semantic indexes to narrow candidates before asking the AI to pick exact files.
+code change. It provides AI-powered file selection via semantic indexes that
+identify relevant files directly from per-folder index descriptions, and a
+fallback full-scan path for repos without indexes.
 """
 
 import os

@@ -409,7 +409,7 @@ Return ONLY the corrected raw file content, no explanations."""
             print(f"Warning: Skipping {file_path} — format validation failed after {MAX_FORMAT_RETRIES + 1} attempts: {errors}")
             return "NO_UPDATE_NEEDED"
 
-    return output
+    return output  # all retries passed validation
 
 def overwrite_file(file_path, new_content):
     """
