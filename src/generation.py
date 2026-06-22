@@ -365,6 +365,9 @@ The human reviewer has provided the following guidance. Follow these instruction
     if output.strip() == "NO_UPDATE_NEEDED":
         return output
 
+    if not output.endswith("\n"):
+        output += "\n"
+
     # Validate and retry loop
     for attempt in range(MAX_FORMAT_RETRIES + 1):
         is_valid, errors = validate_format(output, file_path)
