@@ -117,10 +117,12 @@ class TestGetDocsRoot:
 
 class TestGetDocFolders:
     def test_finds_doc_folders(self, doc_tree):
+        from doc_index import ROOT_LEVEL_FOLDER
         folders = get_doc_folders(docs_root=doc_tree)
         assert "guides/operations" in folders
         assert "guides/configuration" in folders
         assert "tutorials" in folders
+        assert ROOT_LEVEL_FOLDER in folders
 
     def test_skips_hidden_dirs(self, doc_tree):
         folders = get_doc_folders(docs_root=doc_tree)
@@ -322,14 +324,20 @@ class TestGetFilesInAreas:
         assert any("config-ref.rst" in f for f in files)
         assert any("getting-started.md" in f for f in files)
 
-    def test_includes_root_level_docs(self, doc_tree):
-        files = get_files_in_areas(["guides"], docs_root=doc_tree)
-        assert "overview.rst" in files or any("overview.rst" in f for f in files)
+    def test_includes_root_level_docs_when_selected(self, doc_tree):
+        from doc_index import ROOT_LEVEL_FOLDER
+        files = get_files_in_areas([ROOT_LEVEL_FOLDER], docs_root=doc_tree)
+        assert any("overview.rst" in f for f in files)
+        assert any("README.md" in f for f in files)
+
+    def test_excludes_root_level_docs_when_not_selected(self, doc_tree):
+        files = get_files_in_areas(["guides/operations"], docs_root=doc_tree)
+        assert not any("overview.rst" in f for f in files)
 
     def test_nonexistent_area(self, doc_tree):
         files = get_files_in_areas(["nonexistent"], docs_root=doc_tree)
-        # Should still include root-level docs
         assert isinstance(files, list)
+        assert len(files) == 0
 
     def test_deduplicated(self, doc_tree):
         files = get_files_in_areas(["guides", "guides"], docs_root=doc_tree)

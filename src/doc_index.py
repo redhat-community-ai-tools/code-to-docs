@@ -85,6 +85,9 @@ def get_docs_root():
     return Path(".")
 
 
+ROOT_LEVEL_FOLDER = "_root"
+
+
 def get_doc_folders(docs_root=None):
     """
     Get list of documentation folders containing doc files.
@@ -94,11 +97,14 @@ def get_doc_folders(docs_root=None):
     instead of just "operator-manual") so that indexes and area selection are
     more precise, reducing the number of candidate files per area.
 
+    Root-level doc files (not in any sub-folder) are represented by the virtual
+    folder name ROOT_LEVEL_FOLDER ("_root").
+
     Args:
         docs_root: Optional root path for docs. If None, uses get_docs_root()
 
     Returns:
-        list: Sorted list of folder paths (e.g. ["operator-manual/notifications", "user-guide/commands"])
+        list: Sorted list of folder paths (e.g. ["_root", "operator-manual/notifications", "user-guide/commands"])
     """
     if docs_root is None:
         docs_root = get_docs_root()
@@ -116,10 +122,11 @@ def get_doc_folders(docs_root=None):
             if any(part.startswith('.') or part.startswith('_') for part in rel_path.parts):
                 continue
 
-            # Use the parent directory of the file (not just top-level)
             if len(rel_path.parts) > 1:
                 folder = str(rel_path.parent)
                 doc_folders.add(folder)
+            else:
+                doc_folders.add(ROOT_LEVEL_FOLDER)
 
     return sorted(list(doc_folders))
 
@@ -127,24 +134,27 @@ def get_doc_folders(docs_root=None):
 def get_docs_in_folder(folder, docs_root=None):
     """
     Get all documentation files in a folder.
-    
+
     Args:
-        folder: Folder name relative to docs root
+        folder: Folder name relative to docs root, or ROOT_LEVEL_FOLDER for root-level docs
         docs_root: Optional root path for docs. If None, uses get_docs_root()
-    
+
     Returns:
         list: List of Path objects for doc files
     """
     if docs_root is None:
         docs_root = get_docs_root()
-    
-    folder_path = Path(docs_root) / folder
+
+    if folder == ROOT_LEVEL_FOLDER:
+        folder_path = Path(docs_root)
+    else:
+        folder_path = Path(docs_root) / folder
     docs = []
-    
+
     if folder_path.exists():
         for ext in ["*.rst", "*.md", "*.adoc"]:
             docs.extend(folder_path.glob(ext))
-    
+
     return docs
 
 
@@ -1054,23 +1064,18 @@ def get_files_in_areas(areas, docs_root=None):
     files = []
     
     for area in areas:
-        area_path = docs_root / area
+        if area == ROOT_LEVEL_FOLDER:
+            area_path = docs_root
+        else:
+            area_path = docs_root / area
         if area_path.exists():
             for ext in ["*.rst", "*.md", "*.adoc"]:
                 for f in area_path.glob(ext):
-                    # Return path relative to docs_root for consistency
                     try:
                         rel_path = f.relative_to(docs_root)
                         files.append(str(rel_path))
                     except ValueError:
                         files.append(str(f))
-    
-    # Also include root-level documentation files (not in subdirectories)
-    # These are often important overview/index docs that could be affected by many changes
-    for ext in ["*.rst", "*.md", "*.adoc"]:
-        for root_doc in docs_root.glob(ext):
-            if root_doc.is_file():
-                files.append(root_doc.name)
     
     return list(set(files))  # Deduplicate
 
