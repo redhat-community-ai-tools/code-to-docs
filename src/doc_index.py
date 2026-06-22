@@ -898,19 +898,24 @@ DOCUMENTATION AREAS TO EVALUATE (batch {batch_num}/{total_batches}):
 {batch_indexes}
 
 TASK:
-From the areas listed above, identify folders whose documentation would become INCORRECT or INCOMPLETE without an update.
+From the areas listed above, identify ONLY folders whose documentation would become FACTUALLY INCORRECT or MEANINGFULLY INCOMPLETE without an update.
 
-SELECT a folder if ANY of these apply:
-1. The diff MODIFIES existing behavior that the folder documents (docs would become incorrect)
-2. The diff ADDS new functionality that falls within the scope of what the folder documents (docs would become incomplete)
-3. The diff CHANGES defaults, error messages, or output that the folder references
+START WITH THE ASSUMPTION: No documentation needs updating. This is true for most code changes.
+Your job is to find EXCEPTIONS to this rule - cases where docs would become WRONG or miss important new functionality.
+
+BEFORE selecting ANY folder, you MUST be able to answer YES to ALL of these:
+1. Based on the index, does this folder document behavior that this code change DIRECTLY modifies or extends?
+2. Would the documented instructions/information become WRONG or significantly incomplete after this change?
+3. Can I identify from the index summary WHAT SPECIFICALLY would become incorrect or missing?
+
+If you cannot answer YES to all three → return []
 
 DO NOT SELECT folders for:
-- Code that is merely "related to" or "used by" the documented component without changing or extending its documented scope
-- Changes to implementation internals that don't affect user-facing behavior or configuration
-- Changes where the documentation is still both accurate and complete
+- Code that is "related to" or "used by" the documented component
+- Changes to implementation details that don't affect documented behavior
+- Changes where the documentation is still technically accurate and complete
 
-When genuinely uncertain, do NOT include.
+When in doubt, do NOT include.
 
 
 IMPORTANT: You MUST respond with a valid JSON array. No other text or explanation.
