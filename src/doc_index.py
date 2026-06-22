@@ -87,39 +87,40 @@ def get_docs_root():
 
 def get_doc_folders(docs_root=None):
     """
-    Get list of documentation folders (top-level directories with .rst/.md/.adoc files)
-    
+    Get list of documentation folders containing doc files.
+
+    Returns the immediate parent folder of each doc file, relative to docs_root.
+    This provides sub-folder granularity (e.g. "operator-manual/server-commands"
+    instead of just "operator-manual") so that indexes and area selection are
+    more precise, reducing the number of candidate files per area.
+
     Args:
         docs_root: Optional root path for docs. If None, uses get_docs_root()
-    
+
     Returns:
-        list: Sorted list of folder names
+        list: Sorted list of folder paths (e.g. ["operator-manual/notifications", "user-guide/commands"])
     """
     if docs_root is None:
         docs_root = get_docs_root()
-    
+
     docs_root = Path(docs_root)
     doc_folders = set()
-    
+
     for ext in ["*.rst", "*.md", "*.adoc"]:
         for doc_file in docs_root.rglob(ext):
-            # Get path relative to docs_root
             try:
                 rel_path = doc_file.relative_to(docs_root)
             except ValueError:
                 continue
-            
-            # Skip hidden directories and index directory
-            if any(part.startswith('.') for part in rel_path.parts):
+
+            if any(part.startswith('.') or part.startswith('_') for part in rel_path.parts):
                 continue
-            
-            # Get the top-level folder within docs
+
+            # Use the parent directory of the file (not just top-level)
             if len(rel_path.parts) > 1:
-                top_folder = rel_path.parts[0]
-                # Skip internal folders
-                if not top_folder.startswith('_'):
-                    doc_folders.add(top_folder)
-    
+                folder = str(rel_path.parent)
+                doc_folders.add(folder)
+
     return sorted(list(doc_folders))
 
 
@@ -526,14 +527,11 @@ def load_all_indexes(docs_root=None):
         return indexes
     
     doc_folders = set(get_doc_folders(docs_root))
+    # Build a reverse lookup: filename stem → actual folder path
+    stem_to_folder = {f.replace("/", "-"): f for f in doc_folders}
     for index_file in index_dir.glob("*.index.md"):
         stem = index_file.stem.replace(".index", "")
-        # Use the stem as-is if it matches an actual folder (e.g. "operator-manual")
-        if stem in doc_folders:
-            folder_name = stem
-        else:
-            # Fallback for nested paths stored with - as separator
-            folder_name = stem.replace("-", "/")
+        folder_name = stem_to_folder.get(stem, stem)
         indexes[folder_name] = index_file.read_text(encoding='utf-8')
     
     return indexes

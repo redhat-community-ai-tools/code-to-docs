@@ -118,7 +118,8 @@ class TestGetDocsRoot:
 class TestGetDocFolders:
     def test_finds_doc_folders(self, doc_tree):
         folders = get_doc_folders(docs_root=doc_tree)
-        assert "guides" in folders
+        assert "guides/operations" in folders
+        assert "guides/configuration" in folders
         assert "tutorials" in folders
 
     def test_skips_hidden_dirs(self, doc_tree):
