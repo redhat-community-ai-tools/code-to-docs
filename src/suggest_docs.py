@@ -325,31 +325,25 @@ def main():
             else:
                 docs_subfolder = os.environ.get("DOCS_SUBFOLDER")
                 if docs_subfolder:
-                    print("Same-repo scenario: preparing for PR creation...")
-
-                    # Save modified file contents before switching branches
-                    saved_contents = {}
-                    for file_path in modified_files:
-                        full_path = f"{docs_subfolder}/{file_path}" if not file_path.startswith(docs_subfolder) else file_path
-                        saved_contents[full_path] = Path(file_path).read_text(encoding="utf-8")
-
+                    print("Same-repo scenario: committing docs to code PR branch...")
                     os.chdir("..")
-                    base_branch = os.environ.get("DOCS_BASE_BRANCH", "main")
-                    branch_name = get_branch_name(os.environ.get("PR_NUMBER"))
+                    docs_files = [f"{docs_subfolder}/{f}" if not f.startswith(docs_subfolder) else f for f in modified_files]
 
-                    # Branch from the base branch so the docs PR only contains doc changes
-                    run_command_safe(["git", "fetch", "origin", base_branch], check=False)
-                    run_command_safe(
-                        ["git", "checkout", "-B", branch_name, f"origin/{base_branch}"],
-                        check=True,
-                    )
+                    pr_head = os.environ.get("PR_HEAD_SHA", "")
+                    commit_msg = "docs: update documentation based on code changes"
+                    if commit_info:
+                        commit_msg += f"\n\nAssisted-by: code-to-docs AI"
 
-                    # Write saved doc contents onto the clean base
-                    for full_path, content in saved_contents.items():
-                        Path(full_path).write_text(content, encoding="utf-8")
+                    run_command_safe(["git", "add"] + docs_files, check=True)
+                    run_command_safe(["git", "commit", "-m", commit_msg], check=True)
 
-                    docs_files = list(saved_contents.keys())
-                    push_and_open_pr(docs_files, commit_info)
+                    gh_token = os.environ.get("GH_TOKEN")
+                    if gh_token:
+                        run_command_safe(
+                            ["git", "push", "origin", f"HEAD:{pr_head}"],
+                            check=True,
+                        )
+                        print(f"✅ Pushed doc updates to PR branch ({pr_head})")
                 else:
                     print("Separate-repo scenario: creating PR...")
                     push_and_open_pr(modified_files, commit_info)
