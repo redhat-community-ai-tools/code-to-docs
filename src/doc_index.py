@@ -525,11 +525,15 @@ def load_all_indexes(docs_root=None):
     if not index_dir.exists():
         return indexes
     
+    doc_folders = set(get_doc_folders(docs_root))
     for index_file in index_dir.glob("*.index.md"):
-        folder_name = index_file.stem.replace(".index", "").replace("-", "/")
-        # Handle simple folder names (no nested paths in stem)
-        if "/" not in folder_name:
-            folder_name = index_file.stem.replace(".index", "")
+        stem = index_file.stem.replace(".index", "")
+        # Use the stem as-is if it matches an actual folder (e.g. "operator-manual")
+        if stem in doc_folders:
+            folder_name = stem
+        else:
+            # Fallback for nested paths stored with - as separator
+            folder_name = stem.replace("-", "/")
         indexes[folder_name] = index_file.read_text(encoding='utf-8')
     
     return indexes
