@@ -87,7 +87,7 @@ class TestAskAiForUpdatedContent:
             result = ask_ai_for_updated_content(
                 self.DIFF, "docs/guide.md", self.CONTENT
             )
-        assert result == "Updated documentation text"
+        assert result == "Updated documentation text\n"
 
     def test_returns_no_update_needed(self):
         mock_client = _mock_ai_response("NO_UPDATE_NEEDED")
@@ -168,7 +168,7 @@ class TestGenerateUpdatesParallel:
         paths_returned = {r[0] for r in results}
         assert paths_returned == {"a.rst", "b.rst"}
         for _, original, updated in results:
-            assert updated == "Updated doc"
+            assert updated == "Updated doc\n"
 
     def test_skips_no_update_needed(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
@@ -199,4 +199,4 @@ class TestGenerateUpdatesParallel:
 
         assert len(results) == 1
         assert results[0][0] == "a.rst"
-        assert results[0][2] == "Updated A"
+        assert results[0][2] == "Updated A\n"

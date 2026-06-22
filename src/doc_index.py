@@ -85,65 +85,75 @@ def get_docs_root():
     return Path(".")
 
 
+ROOT_LEVEL_FOLDER = "_root"
+
+
 def get_doc_folders(docs_root=None):
     """
-    Get list of documentation folders (top-level directories with .rst/.md/.adoc files)
-    
+    Get list of documentation folders containing doc files.
+
+    Returns the immediate parent folder of each doc file, relative to docs_root.
+    This provides sub-folder granularity so that indexes and file selection are
+    more precise, reducing the number of candidate files per area.
+
+    Root-level doc files (not in any sub-folder) are represented by the virtual
+    folder name ROOT_LEVEL_FOLDER ("_root").
+
     Args:
         docs_root: Optional root path for docs. If None, uses get_docs_root()
-    
+
     Returns:
-        list: Sorted list of folder names
+        list: Sorted list of folder paths
     """
     if docs_root is None:
         docs_root = get_docs_root()
-    
+
     docs_root = Path(docs_root)
     doc_folders = set()
-    
+
     for ext in ["*.rst", "*.md", "*.adoc"]:
         for doc_file in docs_root.rglob(ext):
-            # Get path relative to docs_root
             try:
                 rel_path = doc_file.relative_to(docs_root)
             except ValueError:
                 continue
-            
-            # Skip hidden directories and index directory
-            if any(part.startswith('.') for part in rel_path.parts):
+
+            if any(part.startswith('.') or part.startswith('_') for part in rel_path.parts):
                 continue
-            
-            # Get the top-level folder within docs
+
             if len(rel_path.parts) > 1:
-                top_folder = rel_path.parts[0]
-                # Skip internal folders
-                if not top_folder.startswith('_'):
-                    doc_folders.add(top_folder)
-    
+                folder = str(rel_path.parent)
+                doc_folders.add(folder)
+            else:
+                doc_folders.add(ROOT_LEVEL_FOLDER)
+
     return sorted(list(doc_folders))
 
 
 def get_docs_in_folder(folder, docs_root=None):
     """
     Get all documentation files in a folder.
-    
+
     Args:
-        folder: Folder name relative to docs root
+        folder: Folder name relative to docs root, or ROOT_LEVEL_FOLDER for root-level docs
         docs_root: Optional root path for docs. If None, uses get_docs_root()
-    
+
     Returns:
         list: List of Path objects for doc files
     """
     if docs_root is None:
         docs_root = get_docs_root()
-    
-    folder_path = Path(docs_root) / folder
+
+    if folder == ROOT_LEVEL_FOLDER:
+        folder_path = Path(docs_root)
+    else:
+        folder_path = Path(docs_root) / folder
     docs = []
-    
+
     if folder_path.exists():
         for ext in ["*.rst", "*.md", "*.adoc"]:
-            docs.extend(folder_path.rglob(ext))
-    
+            docs.extend(folder_path.glob(ext))
+
     return docs
 
 
@@ -246,7 +256,8 @@ Generate a structured index in the following format:
 [2-3 sentences describing what this documentation area covers and its purpose]
 
 ## Files Summary
-[For each file, provide: filename and 1-2 sentence description of its purpose]
+[For each file, provide: filename and 1-2 sentence description of its purpose.
+List each file individually — do NOT group files or use wildcards.]
 
 ## Code Changes That Would Require Documentation Updates
 [List specific types of code changes, features, components, or behaviors that would require updating these docs. Be comprehensive and specific - think about what a developer might change in the codebase that would make this documentation outdated.]
@@ -352,17 +363,14 @@ def build_index_for_folder(folder, client=None):
         return None
 
     budget = get_max_context_chars()
-    # Measure actual prompt overhead (template without docs)
     prompt_overhead = len(_build_index_prompt(folder, ""))
 
-    # Check if all files fit in a single call
     total_content_size = sum(
         len(f"### File: {d['path']}\n\n{d['content']}") + 10
         for d in docs_content
     )
 
     if total_content_size + prompt_overhead <= budget:
-        # All files fit — single call with full content
         docs_text = "\n\n---\n\n".join([
             f"### File: {d['path']}\n\n{d['content']}"
             for d in docs_content
@@ -525,11 +533,12 @@ def load_all_indexes(docs_root=None):
     if not index_dir.exists():
         return indexes
     
+    doc_folders = set(get_doc_folders(docs_root))
+    # Build a reverse lookup: filename stem → actual folder path
+    stem_to_folder = {f.replace("/", "-"): f for f in doc_folders}
     for index_file in index_dir.glob("*.index.md"):
-        folder_name = index_file.stem.replace(".index", "").replace("-", "/")
-        # Handle simple folder names (no nested paths in stem)
-        if "/" not in folder_name:
-            folder_name = index_file.stem.replace(".index", "")
+        stem = index_file.stem.replace(".index", "")
+        folder_name = stem_to_folder.get(stem, stem)
         indexes[folder_name] = index_file.read_text(encoding='utf-8')
     
     return indexes
@@ -840,120 +849,129 @@ def commit_indexes_to_repo(content_type="indexes"):
         return False
 
 
-def find_relevant_areas_from_indexes(diff, client=None):
+def find_relevant_files_from_indexes(diff, client=None):
     """
-    Use indexes to find which documentation AREAS are relevant to a code diff.
-    
-    This is the first stage of the two-stage lookup:
-    1. Find relevant areas (this function) - processes in batches to avoid large prompts
-    2. Find exact files within those areas (separate function)
-    
+    Use indexes to find which documentation FILES are relevant to a code diff.
+
+    Reads the per-folder indexes (which include per-file descriptions) and asks
+    the LLM to pick the specific files that need updating — in a single step,
+    without loading the actual file content.
+
     Args:
         diff: The code diff to analyze
         client: Optional OpenAI-compatible client
-    
+
     Returns:
-        list: Folder names that might contain relevant documentation
+        list: File paths that need documentation updates, or None to signal full scan needed
     """
     if client is None:
         client = get_client()
-    
+
     indexes = load_all_indexes()
-    
+
     if not indexes:
         print("No indexes found, falling back to full scan")
-        return None  # Signal to use full scan
-    
-    # Process indexes in batches to avoid huge prompts
-    # Smaller batches = more focused evaluation per batch
+        return None
+
     BATCH_SIZE = 5
     all_folders = list(indexes.keys())
-    all_relevant_areas = []
-    
+    all_relevant_files = []
+
     total_batches = (len(all_folders) + BATCH_SIZE - 1) // BATCH_SIZE
-    print(f"Processing {len(all_folders)} doc areas in {total_batches} batches...")
-    
+    print(f"Scanning {len(all_folders)} doc areas in {total_batches} batches...")
+
     for batch_idx in range(0, len(all_folders), BATCH_SIZE):
         batch_folders = all_folders[batch_idx:batch_idx + BATCH_SIZE]
         batch_num = (batch_idx // BATCH_SIZE) + 1
-        
-        # Build indexes for this batch only
+
         batch_indexes = "\n\n" + "="*50 + "\n\n".join([
             f"## Documentation Area: {folder}\n\n{indexes[folder]}"
             for folder in batch_folders
         ])
 
-        # Build prompt template without diff to measure its length
         prompt_template = f"""
-You are analyzing a code diff to determine which documentation areas might need updates.
+You are analyzing a code diff to determine which specific documentation FILES need updates.
 
 CODE DIFF:
 ```
 {{DIFF_PLACEHOLDER}}
 ```
 
-DOCUMENTATION AREAS TO EVALUATE (batch {batch_num}/{total_batches}):
+DOCUMENTATION INDEXES TO EVALUATE (batch {batch_num}/{total_batches}):
 {batch_indexes}
 
 TASK:
-From the areas listed above, identify ONLY folders whose documentation would become FACTUALLY INCORRECT without an update.
+Each index above contains a "Files Summary" section listing individual files with descriptions.
+From those file listings, identify SPECIFIC FILES whose documentation would become FACTUALLY INCORRECT or MEANINGFULLY INCOMPLETE without an update.
 
 START WITH THE ASSUMPTION: No documentation needs updating. This is true for most code changes.
-Your job is to find EXCEPTIONS to this rule - cases where docs would become WRONG.
+Your job is to find EXCEPTIONS to this rule - cases where docs would become WRONG or miss important new functionality.
 
-BEFORE selecting ANY folder, you MUST be able to answer YES to ALL of these:
-1. Based on the index, does this folder document behavior that this code change DIRECTLY modifies?
-2. Would the documented instructions/information become WRONG after this change?
-3. Can I identify from the index summary WHAT SPECIFICALLY would become incorrect?
+BEFORE selecting ANY file, you MUST be able to answer YES to ALL of these:
+1. Based on the file description in the index, does this file document behavior that this code change DIRECTLY modifies or extends?
+2. Would the file's content become WRONG or significantly incomplete after this change?
+3. Can I identify from the description WHAT SPECIFICALLY would need to change?
 
-If you cannot answer YES to all three → return []
+If you cannot answer YES to all three for a file → do not include it.
 
-DO NOT SELECT folders for:
-- Code that is "related to" or "used by" the documented component
+DO NOT SELECT files for:
+- Topics that are "related to" or "used by" the changed code without being directly affected
 - Changes to implementation details that don't affect documented behavior
-- Changes where the documentation is still technically accurate
+- Files where the documentation would still be technically accurate and complete
 
 When in doubt, do NOT include.
 
+Return EXACT file paths as they appear in the index. Do NOT use wildcards or glob patterns — list each file individually.
 
 IMPORTANT: You MUST respond with a valid JSON array. No other text or explanation.
-- If folders need updates: ["folder-1","folder-2"]
-- If NO folders need updates: []
+- If files need updates: ["folder/file1.md", "folder/file2.md"]
+- If NO files need updates: []
 
 You MUST output something. An empty response is not valid - output [] instead.
 """
         diff_budget = get_max_context_chars() - len(prompt_template)
-        truncated_diff = truncate_diff(diff, diff_budget, label=f"area-relevance diff (batch {batch_num})")
+        truncated_diff = truncate_diff(diff, diff_budget, label=f"file-selection diff (batch {batch_num})")
         prompt = prompt_template.replace("{DIFF_PLACEHOLDER}", truncated_diff)
-        
-        batch_relevant = _process_area_batch(client, prompt, batch_num, total_batches, batch_folders)
-        if batch_relevant:
-            all_relevant_areas.extend(batch_relevant)
-    
-    # Deduplicate
-    all_relevant_areas = list(dict.fromkeys(all_relevant_areas))
-    
-    if not all_relevant_areas:
-        print("AI found no relevant documentation areas in any batch")
+
+        batch_files = _process_file_selection_batch(client, prompt, batch_num, total_batches)
+        if batch_files:
+            all_relevant_files.extend(batch_files)
+
+    # Deduplicate while preserving order
+    all_relevant_files = list(dict.fromkeys(all_relevant_files))
+
+    # Filter out invalid paths (glob patterns, non-doc extensions)
+    valid_files = []
+    for f in all_relevant_files:
+        if any(c in f for c in ['*', '?', '[']):
+            print(f"Skipping invalid path (glob pattern): {f}")
+            continue
+        if not (f.endswith('.md') or f.endswith('.rst') or f.endswith('.adoc')):
+            print(f"Skipping non-doc file: {f}")
+            continue
+        valid_files.append(f)
+    all_relevant_files = valid_files
+
+    if not all_relevant_files:
+        print("AI found no relevant documentation files")
         return []
-    
-    print(f"Total relevant documentation areas ({len(all_relevant_areas)}): {all_relevant_areas}")
-    return all_relevant_areas
+
+    print(f"Total relevant files ({len(all_relevant_files)}): {all_relevant_files}")
+    return all_relevant_files
 
 
-def _process_area_batch(client, prompt, batch_num, total_batches, batch_folders):
+def _process_file_selection_batch(client, prompt, batch_num, total_batches):
     """
-    Process a single batch of indexes to find relevant areas.
-    
+    Process a single batch of indexes to find relevant files.
+
     Args:
         client: OpenAI-compatible client
         prompt: The prompt for this batch
         batch_num: Current batch number
         total_batches: Total number of batches
-        batch_folders: Folders in this batch
-    
+
     Returns:
-        list: Relevant folder names from this batch
+        list: Relevant file paths from this batch
     """
     model_name = get_model_name()
     max_retries = 3
@@ -964,53 +982,45 @@ def _process_area_batch(client, prompt, batch_num, total_batches, batch_folders)
                 messages=[{"role": "user", "content": prompt}],
             )
 
-            # Check for empty or malformed response
             try:
                 response_text = response.choices[0].message.content
-            except Exception as text_err:
+            except Exception:
                 print(f"Batch {batch_num}/{total_batches}: Could not get response text (attempt {attempt + 1})")
                 if attempt < max_retries - 1:
                     time.sleep(calc_backoff_delay(attempt, multiplier=2))
                     continue
                 else:
-                    print(f"Batch {batch_num}/{total_batches}: Failed after retries, skipping batch")
                     return []
-            
+
             if not response_text or not response_text.strip():
                 if attempt < max_retries - 1:
                     print(f"Batch {batch_num}/{total_batches}: Empty response (attempt {attempt + 1}), retrying...")
                     time.sleep(calc_backoff_delay(attempt, multiplier=2))
                     continue
                 else:
-                    # Treat empty response as "no relevant folders" - this is likely the AI's intent
-                    print(f"Batch {batch_num}/{total_batches}: Empty response after retries, treating as no relevant areas")
+                    print(f"Batch {batch_num}/{total_batches}: Empty response after retries, treating as no relevant files")
                     return []
-            
+
             result_text = response_text.strip()
-            
-            # Clean up response - remove markdown code blocks if present
+
             if result_text.startswith("```"):
                 result_text = result_text.split("\n", 1)[1]
             if result_text.endswith("```"):
                 result_text = result_text.rsplit("\n", 1)[0]
             result_text = result_text.strip()
 
-            # Extract JSON array from response - model sometimes wraps it in extra text
             json_match = re.search(r'\[.*?\]', result_text, re.DOTALL)
             if json_match:
                 result_text = json_match.group(0)
 
-            relevant_areas = json.loads(result_text)
-            
-            # Filter to only include folders from this batch
-            relevant_areas = [f for f in relevant_areas if f in batch_folders]
-            
-            if relevant_areas:
-                print(f"Batch {batch_num}/{total_batches}: Found relevant areas: {relevant_areas}")
+            relevant_files = json.loads(result_text)
+
+            if relevant_files:
+                print(f"Batch {batch_num}/{total_batches}: Found relevant files: {relevant_files}")
             else:
-                print(f"Batch {batch_num}/{total_batches}: No relevant areas")
-            
-            return relevant_areas
+                print(f"Batch {batch_num}/{total_batches}: No relevant files")
+
+            return relevant_files
             
         except json.JSONDecodeError:
             if attempt < max_retries - 1:
@@ -1052,23 +1062,18 @@ def get_files_in_areas(areas, docs_root=None):
     files = []
     
     for area in areas:
-        area_path = docs_root / area
+        if area == ROOT_LEVEL_FOLDER:
+            area_path = docs_root
+        else:
+            area_path = docs_root / area
         if area_path.exists():
             for ext in ["*.rst", "*.md", "*.adoc"]:
-                for f in area_path.rglob(ext):
-                    # Return path relative to docs_root for consistency
+                for f in area_path.glob(ext):
                     try:
                         rel_path = f.relative_to(docs_root)
                         files.append(str(rel_path))
                     except ValueError:
                         files.append(str(f))
-    
-    # Also include root-level documentation files (not in subdirectories)
-    # These are often important overview/index docs that could be affected by many changes
-    for ext in ["*.rst", "*.md", "*.adoc"]:
-        for root_doc in docs_root.glob(ext):
-            if root_doc.is_file():
-                files.append(root_doc.name)
     
     return list(set(files))  # Deduplicate
 

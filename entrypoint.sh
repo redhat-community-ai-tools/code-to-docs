@@ -47,6 +47,10 @@ if [ -n "$JIRA_API_TOKEN" ]; then
   export JIRA_API_TOKEN="$JIRA_API_TOKEN"
 fi
 
+if [ -n "$STYLE_CONFIG_PATH" ]; then
+  export STYLE_CONFIG_PATH="$STYLE_CONFIG_PATH"
+fi
+
 if [ -n "$GOOGLE_SA_KEY" ]; then
   # Write service account JSON to temp file for gws CLI
   GWS_CREDS_FILE=$(mktemp /tmp/gws-sa-XXXXXX.json)

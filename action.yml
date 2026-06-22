@@ -69,6 +69,10 @@ inputs:
     description: 'Maximum characters for LLM prompt content (default: 400000, ~100K tokens). Decrease for models with smaller context windows (e.g. 32000 for an 8K-token model).'
     required: false
     default: '400000'
+  style-config-path:
+    description: 'Path to a Markdown style configuration file (.md) containing documentation style guidelines. If not set, auto-detects .code-to-docs/style.md in the repository root.'
+    required: false
+    default: ''
 
 outputs:
   status:
@@ -99,3 +103,4 @@ runs:
     JIRA_API_TOKEN: ${{ inputs.jira-api-token }}
     GOOGLE_SA_KEY: ${{ inputs.google-sa-key }}
     MAX_CONTEXT_CHARS: ${{ inputs.max-context-chars }}
+    STYLE_CONFIG_PATH: ${{ inputs.style-config-path }}

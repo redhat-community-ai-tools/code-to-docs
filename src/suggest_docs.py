@@ -21,7 +21,7 @@ import argparse
 import difflib
 from pathlib import Path
 
-from config import get_client, get_model_name, get_branch_name, get_max_context_chars
+from config import get_client, get_model_name, get_branch_name, get_max_context_chars, load_style_config
 from github_ops import get_diff, get_commit_info, setup_docs_environment, push_and_open_pr
 from discovery import find_relevant_files_optimized, ask_ai_for_relevant_files, get_file_content_or_summaries
 from generation import generate_updates_parallel, load_full_content, ask_ai_for_updated_content, overwrite_file
@@ -55,6 +55,9 @@ def main():
     raw = os.environ.get("MAX_CONTEXT_CHARS", "")
     source = "MAX_CONTEXT_CHARS" if raw else "default"
     print(f"Context budget: {budget:,} chars (from {source})")
+
+    # Load persistent style guidelines (if configured)
+    style_guidelines = load_style_config()
 
     # Handle --build-index mode
     if args.build_index:
@@ -271,7 +274,8 @@ def main():
         print(f"Generating updates in parallel (max {args.max_workers} workers)...")
         files_with_content = generate_updates_parallel(
             diff, relevant_files, max_workers=args.max_workers,
-            user_instructions=user_instructions, file_instructions=file_instructions
+            user_instructions=user_instructions, file_instructions=file_instructions,
+            style_guidelines=style_guidelines,
         )
 
         for file_path, current, updated in files_with_content:
@@ -290,7 +294,8 @@ def main():
             print(f"Checking if {file_path} needs an update...")
             updated = ask_ai_for_updated_content(
                 diff, file_path, current,
-                user_instructions=user_instructions, file_instructions=file_instructions
+                user_instructions=user_instructions, file_instructions=file_instructions,
+                style_guidelines=style_guidelines,
             )
 
             if updated.strip() == "NO_UPDATE_NEEDED":
@@ -320,15 +325,25 @@ def main():
             else:
                 docs_subfolder = os.environ.get("DOCS_SUBFOLDER")
                 if docs_subfolder:
-                    print("Same-repo scenario: preparing for PR creation...")
+                    print("Same-repo scenario: committing docs to code PR branch...")
                     os.chdir("..")
-                    branch_name = get_branch_name(os.environ.get("PR_NUMBER"))
-                    try:
-                        run_command_safe(["git", "checkout", "-b", branch_name], check=True)
-                    except subprocess.CalledProcessError:
-                        run_command_safe(["git", "checkout", branch_name], check=True)
                     docs_files = [f"{docs_subfolder}/{f}" if not f.startswith(docs_subfolder) else f for f in modified_files]
-                    push_and_open_pr(docs_files, commit_info)
+
+                    pr_head = os.environ.get("PR_HEAD_SHA", "")
+                    commit_msg = "docs: update documentation based on code changes"
+                    if commit_info:
+                        commit_msg += f"\n\nAssisted-by: code-to-docs AI"
+
+                    run_command_safe(["git", "add"] + docs_files, check=True)
+                    run_command_safe(["git", "commit", "-m", commit_msg], check=True)
+
+                    gh_token = os.environ.get("GH_TOKEN")
+                    if gh_token:
+                        run_command_safe(
+                            ["git", "push", "origin", f"HEAD:{pr_head}"],
+                            check=True,
+                        )
+                        print(f"✅ Pushed doc updates to PR branch ({pr_head})")
                 else:
                     print("Separate-repo scenario: creating PR...")
                     push_and_open_pr(modified_files, commit_info)
@@ -377,7 +392,11 @@ def main():
                             confirm_parts.append("")
                             confirm_parts.append("</details>")
                             confirm_parts.append("")
-                    confirm_parts.append("A docs PR has been created/updated with these changes.")
+                    docs_subfolder = os.environ.get("DOCS_SUBFOLDER")
+                    if docs_subfolder:
+                        confirm_parts.append("Doc updates have been committed to this PR.")
+                    else:
+                        confirm_parts.append("A docs PR has been created/updated with these changes.")
                 confirm_body = "\n".join(confirm_parts)
                 confirm_file = Path("/tmp/update_confirm.md")
                 confirm_file.write_text(confirm_body, encoding="utf-8")
