@@ -10,6 +10,7 @@ from doc_index import (
     INDEX_DIR,
     SUMMARIES_DIR,
     checkout_docs_from_base_branch,
+    fetch_indexes_from_main,
     folder_needs_reindex,
     get_doc_folders,
     get_docs_in_folder,
@@ -423,6 +424,158 @@ class TestCheckoutDocsFromBaseBranch:
             result = checkout_docs_from_base_branch()
 
         assert result is False
+
+
+# ── fetch_indexes_from_main ──────────────────────────────────────────────────
+
+
+class TestFetchIndexesFromMain:
+    """Tests for fetch_indexes_from_main() — fetch cached .doc-index from base branch."""
+
+    def _mock_git(
+        self,
+        ls_tree_stdout="",
+        ls_tree_returncode=0,
+        fetch_returncode=0,
+        checkout_returncode=0,
+        checkout_stderr="",
+        fetch_stderr="",
+    ):
+        """Return a run_command_safe side_effect that simulates the three git calls."""
+
+        def side_effect(cmd, **kwargs):
+            result = MagicMock()
+            if cmd[:2] == ["git", "fetch"]:
+                result.returncode = fetch_returncode
+                result.stdout = ""
+                result.stderr = fetch_stderr
+            elif cmd[:2] == ["git", "ls-tree"]:
+                result.returncode = ls_tree_returncode
+                result.stdout = ls_tree_stdout
+                result.stderr = ""
+            elif cmd[:2] == ["git", "checkout"]:
+                result.returncode = checkout_returncode
+                result.stdout = ""
+                result.stderr = checkout_stderr
+            else:
+                raise AssertionError(
+                    f"Unexpected command in mock: {cmd}\n"
+                    "If this is intentional, extend _mock_git to handle it."
+                )
+            return result
+
+        return side_effect
+
+    def test_returns_true_when_index_fetched_successfully(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        with patch("doc_index.run_command_safe") as mock_run:
+            mock_run.side_effect = self._mock_git(ls_tree_stdout="040000 tree abc\t.doc-index\n")
+            result = fetch_indexes_from_main()
+
+        assert result is True
+        calls = [c.args[0] for c in mock_run.call_args_list]
+        assert ["git", "checkout", "origin/main", "--", ".doc-index"] in calls
+
+    def test_returns_false_when_no_index_on_base(self, monkeypatch, tmp_path, capsys):
+        monkeypatch.chdir(tmp_path)
+        with patch("doc_index.run_command_safe") as mock_run:
+            # ls-tree returns 0 but empty stdout — path is not tracked on the branch
+            mock_run.side_effect = self._mock_git(ls_tree_stdout="")
+            result = fetch_indexes_from_main()
+
+        assert result is False
+        out = capsys.readouterr().out
+        assert "No cached indexes/summaries found" in out
+        # And the checkout should never have been attempted
+        calls = [c.args[0] for c in mock_run.call_args_list]
+        assert not any(c[:2] == ["git", "checkout"] for c in calls)
+
+    def test_returns_false_on_fetch_failure(self, monkeypatch, tmp_path, capsys):
+        monkeypatch.chdir(tmp_path)
+        with patch("doc_index.run_command_safe") as mock_run:
+            mock_run.side_effect = self._mock_git(
+                fetch_returncode=128, fetch_stderr="fatal: could not read from remote"
+            )
+            result = fetch_indexes_from_main()
+
+        assert result is False
+        out = capsys.readouterr().out
+        assert "Could not fetch" in out
+        # ls-tree should not have been called after fetch failed
+        calls = [c.args[0] for c in mock_run.call_args_list]
+        assert not any(c[:2] == ["git", "ls-tree"] for c in calls)
+
+    def test_returns_false_on_ls_tree_failure(self, monkeypatch, tmp_path, capsys):
+        monkeypatch.chdir(tmp_path)
+        with patch("doc_index.run_command_safe") as mock_run:
+            mock_run.side_effect = self._mock_git(ls_tree_returncode=128)
+            result = fetch_indexes_from_main()
+
+        assert result is False
+        out = capsys.readouterr().out
+        assert "No cached indexes/summaries found" in out
+
+    def test_returns_false_on_checkout_failure(self, monkeypatch, tmp_path, capsys):
+        monkeypatch.chdir(tmp_path)
+        with patch("doc_index.run_command_safe") as mock_run:
+            mock_run.side_effect = self._mock_git(
+                ls_tree_stdout="040000 tree abc\t.doc-index\n",
+                checkout_returncode=1,
+                checkout_stderr="error: pathspec did not match any file",
+            )
+            result = fetch_indexes_from_main()
+
+        assert result is False
+        out = capsys.readouterr().out
+        assert "Could not checkout indexes" in out
+
+    def test_uses_custom_base_branch(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("DOCS_BASE_BRANCH", "develop")
+        with patch("doc_index.run_command_safe") as mock_run:
+            mock_run.side_effect = self._mock_git(ls_tree_stdout="040000 tree abc\t.doc-index\n")
+            fetch_indexes_from_main()
+
+        calls = [c.args[0] for c in mock_run.call_args_list]
+        assert ["git", "fetch", "origin", "develop"] in calls
+        assert ["git", "ls-tree", "origin/develop", "--", ".doc-index"] in calls
+        assert ["git", "checkout", "origin/develop", "--", ".doc-index"] in calls
+
+    def test_empty_base_branch_falls_back_to_main(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("DOCS_BASE_BRANCH", "")
+        with patch("doc_index.run_command_safe") as mock_run:
+            mock_run.side_effect = self._mock_git(ls_tree_stdout="040000 tree abc\t.doc-index\n")
+            fetch_indexes_from_main()
+
+        calls = [c.args[0] for c in mock_run.call_args_list]
+        assert ["git", "fetch", "origin", "main"] in calls
+
+    def test_docs_subfolder_uses_prefixed_index_path(self, monkeypatch, tmp_path):
+        docs_dir = tmp_path / "docs"
+        docs_dir.mkdir()
+        monkeypatch.setenv("DOCS_SUBFOLDER", "docs")
+        monkeypatch.chdir(docs_dir)
+
+        with patch("doc_index.run_command_safe") as mock_run:
+            mock_run.side_effect = self._mock_git(
+                ls_tree_stdout="040000 tree abc\tdocs/.doc-index\n"
+            )
+            fetch_indexes_from_main()
+
+        calls = [c.args[0] for c in mock_run.call_args_list]
+        # Both the existence check and the checkout should use the subfolder-prefixed path
+        assert ["git", "ls-tree", "origin/main", "--", "docs/.doc-index"] in calls
+        assert ["git", "checkout", "origin/main", "--", "docs/.doc-index"] in calls
+
+    def test_returns_false_on_unexpected_exception(self, monkeypatch, tmp_path, capsys):
+        monkeypatch.chdir(tmp_path)
+        with patch("doc_index.run_command_safe", side_effect=OSError("git not found")):
+            result = fetch_indexes_from_main()
+
+        assert result is False
+        out = capsys.readouterr().out
+        assert "Error fetching indexes from main" in out
 
 
 # ── Summary filename ─────────────────────────────────────────────────────────
