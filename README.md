@@ -23,7 +23,7 @@ Comment on any Pull Request:
 You can guide how the AI generates doc updates by adding instructions in your `[update-docs]` comment — global on the first line, per-file on subsequent lines:
 
 ```
-[update-docs] keep changes minimal
+[update-docs] focus on the new CLI flags
 config-ref.rst: only update the CLI usage example
 ```
 
@@ -46,7 +46,7 @@ The action auto-detects this file. To use a custom path instead, set the `style-
 - Use present tense
 ```
 
-Per-comment instructions (`[update-docs] keep changes minimal`) continue to work alongside the persistent config, appearing as additional guidance after the style guidelines. If per-comment or per-file instructions contradict the style guidelines, the reviewer's instructions take precedence.
+Per-comment instructions (`[update-docs] focus on the new CLI flags`) continue to work alongside the persistent config, appearing as additional guidance after the style guidelines. If per-comment or per-file instructions contradict the style guidelines, the reviewer's instructions take precedence.
 
 ## How It Works
 
