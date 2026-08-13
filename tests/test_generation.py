@@ -322,7 +322,8 @@ class TestVerifyUpdateWithLlm:
         assert ok is False
         assert "no details" in issues.lower()
 
-    def test_ambiguous_response_passes(self):
+    def test_ambiguous_response_fails_closed(self):
+        """Ambiguous responses (neither APPROVED nor REJECTED) fail closed."""
         mock_client = _mock_ai_response("The update looks mostly fine but...")
         with (
             patch("generation.get_client", return_value=mock_client),
@@ -331,7 +332,8 @@ class TestVerifyUpdateWithLlm:
             ok, issues = verify_update_with_llm(
                 self.DIFF, "docs/guide.md", self.ORIGINAL, self.UPDATED
             )
-        assert ok is True
+        assert ok is False
+        assert "ambiguous" in issues.lower()
 
     def test_llm_error_passes_gracefully(self):
         mock_client = MagicMock()
@@ -445,6 +447,72 @@ class TestPostGenerationValidation:
         assert "Fixed update" in result
         # Should have 3 calls: initial generation, verification, regeneration
         assert call_count[0] == 3
+
+    def test_regenerates_when_preservation_fails_but_llm_approves(self):
+        """Preservation check failure triggers regeneration even if LLM approves."""
+        call_count = [0]
+
+        def side_effect(**kwargs):
+            call_count[0] += 1
+            mock_resp = MagicMock()
+            mock_resp.choices = [MagicMock()]
+            messages = kwargs["messages"]
+            if messages[0]["content"].startswith("You are a documentation review auditor"):
+                mock_resp.choices[0].message.content = "APPROVED"
+            elif "rejected because" in messages[1]["content"]:
+                # Regeneration call — return preserved content
+                mock_resp.choices[
+                    0
+                ].message.content = "Line 1\nLine 2\nLine 3\nLine 4\nLine 5\nFixed update\n"
+            else:
+                # Initial generation — remove most lines (fails preservation >20%)
+                mock_resp.choices[0].message.content = "Line 1\nNew stuff only\n"
+            return mock_resp
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = side_effect
+
+        with (
+            patch("generation.get_client", return_value=mock_client),
+            patch("generation.get_model_name", return_value="test-model"),
+        ):
+            result = ask_ai_for_updated_content(self.DIFF, "docs/guide.md", self.CONTENT)
+
+        # Preservation fails (4/5 lines removed = 80%), so regeneration happens
+        # even though LLM verification passed
+        assert "Fixed update" in result
+        assert call_count[0] == 3
+
+    def test_returns_no_update_when_regeneration_raises(self):
+        """When regeneration API call raises, returns NO_UPDATE_NEEDED."""
+        call_count = [0]
+
+        def side_effect(**kwargs):
+            call_count[0] += 1
+            mock_resp = MagicMock()
+            mock_resp.choices = [MagicMock()]
+            messages = kwargs["messages"]
+            if messages[0]["content"].startswith("You are a documentation review auditor"):
+                mock_resp.choices[0].message.content = "REJECTED: Bad update"
+            elif "rejected because" in messages[1]["content"]:
+                raise RuntimeError("API connection failed")
+            else:
+                # Initial generation — content that passes preservation
+                mock_resp.choices[
+                    0
+                ].message.content = "Line 1\nLine 2\nLine 3\nLine 4\nLine 5\nSome addition\n"
+            return mock_resp
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = side_effect
+
+        with (
+            patch("generation.get_client", return_value=mock_client),
+            patch("generation.get_model_name", return_value="test-model"),
+        ):
+            result = ask_ai_for_updated_content(self.DIFF, "docs/guide.md", self.CONTENT)
+
+        assert result.strip() == "NO_UPDATE_NEEDED"
 
     def test_skips_when_regeneration_still_fails_preservation(self):
         """When regenerated output still fails preservation, returns NO_UPDATE_NEEDED."""

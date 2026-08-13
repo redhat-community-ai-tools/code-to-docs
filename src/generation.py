@@ -304,9 +304,14 @@ def verify_update_with_llm(code_diff, file_path, original, updated, user_instruc
         reason = verdict[len("REJECTED") :].lstrip(": ").strip()
         return False, reason or "Update rejected by verification (no details provided)"
 
-    # Ambiguous response — treat as pass with a warning
+    # Ambiguous response — fail closed to be consistent with the feature's
+    # protective intent.  This triggers a regeneration attempt rather than
+    # silently accepting an unverified update.
     print(f"Warning: Verification returned ambiguous response for {file_path}: {verdict[:200]}")
-    return True, ""
+    return (
+        False,
+        f"Ambiguous verification response (neither APPROVED nor REJECTED): {verdict[:200]}",
+    )
 
 
 def generate_updates_parallel(
@@ -685,13 +690,18 @@ Return ONLY the corrected raw file content, no explanations."""
         # roughly double prompt size without a budget check).
         max_chars = get_max_context_chars()
         regen_budget = max(0, max_chars - len(regen_prefix))
-        if len(prompt) > regen_budget:
-            # Re-truncate the diff portion to fit within budget
-            regen_diff_budget = max(0, regen_budget - (len(prompt) - len(truncated_diff)))
+        # Use the placeholder-based approach to rebuild the prompt with a
+        # re-truncated diff, avoiding fragile string-replacement of raw diff
+        # content that could match elsewhere in the prompt.
+        prompt_shell_len = len(prompt_template) - len("{DIFF_PLACEHOLDER}")
+        if prompt_shell_len + len(truncated_diff) > regen_budget:
+            regen_diff_budget = max(0, regen_budget - prompt_shell_len)
             regen_truncated_diff = truncate_diff(
                 diff, regen_diff_budget, label=f"regen diff for {file_path}"
             )
-            regen_prompt = regen_prefix + prompt.replace(truncated_diff, regen_truncated_diff)
+            regen_prompt = regen_prefix + prompt_template.replace(
+                "{DIFF_PLACEHOLDER}", regen_truncated_diff
+            )
         else:
             regen_prompt = regen_prefix + prompt
 
