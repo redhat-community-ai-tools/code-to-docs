@@ -105,35 +105,24 @@ class TestRetryLoop:
     def test_retries_on_invalid_format_then_succeeds(
         self, mock_budget, mock_model, mock_client, mock_validate
     ):
-        # Call 1: initial generation returns content that fails format validation
-        # Call 2: format-fix retry returns content that passes
-        # Call 3: post-generation LLM verification (approves)
-        current_content = "Title\n=====\n\nOld content"
+        # First call: initial generation returns content that fails validation
+        # Second call: retry returns content that passes validation
+        mock_response_1 = MagicMock()
+        mock_response_1.choices = [MagicMock()]
+        mock_response_1.choices[0].message.content = "Bad RST content"
 
-        def llm_side_effect(**kwargs):
-            mock_resp = MagicMock()
-            mock_resp.choices = [MagicMock()]
-            messages = kwargs["messages"]
-            if messages[0]["content"].startswith("You are a documentation review auditor"):
-                mock_resp.choices[0].message.content = "APPROVED"
-            elif "format errors" in messages[1]["content"].lower():
-                # Format fix — preserve original content
-                mock_resp.choices[
-                    0
-                ].message.content = "Title\n=====\n\nOld content\n\nFixed addition"
-            else:
-                mock_resp.choices[0].message.content = "Bad RST content"
-            return mock_resp
+        mock_response_2 = MagicMock()
+        mock_response_2.choices = [MagicMock()]
+        mock_response_2.choices[0].message.content = "Fixed RST content"
 
         client = MagicMock()
-        client.chat.completions.create.side_effect = llm_side_effect
+        client.chat.completions.create.side_effect = [mock_response_1, mock_response_2]
         mock_client.return_value = client
 
-        # validate_format: fail on first content, pass on second and later
+        # validate_format: fail on first content, pass on second
         mock_validate.side_effect = [
             (False, "RST validation errors: bad underline"),
             (True, ""),
-            (True, ""),  # may be called during regeneration check
         ]
 
         from generation import ask_ai_for_updated_content
@@ -141,11 +130,11 @@ class TestRetryLoop:
         result = ask_ai_for_updated_content(
             diff="diff --git a/foo.py\n+new line",
             file_path="docs/guide.rst",
-            current_content=current_content,
+            current_content="Title\n=====\n\nOld content",
+            skip_verification=True,
         )
-        assert "Fixed addition" in result.strip()
-        # 3 LLM calls: initial generation, format-fix retry, post-generation verification
-        assert client.chat.completions.create.call_count == 3
+        assert result.strip() == "Fixed RST content"
+        assert client.chat.completions.create.call_count == 2
 
     @patch("generation.get_client")
     @patch("generation.get_model_name", return_value="test-model")

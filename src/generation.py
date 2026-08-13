@@ -317,6 +317,7 @@ def generate_updates_parallel(
     file_instructions=None,
     style_guidelines="",
     pr_description="",
+    skip_verification=False,
 ):
     """
     Generate documentation updates in parallel.
@@ -350,6 +351,7 @@ def generate_updates_parallel(
             file_instructions=file_instructions,
             style_guidelines=style_guidelines,
             pr_description=pr_description,
+            skip_verification=skip_verification,
         )
 
         if updated.strip() == "NO_UPDATE_NEEDED":
@@ -400,6 +402,7 @@ def ask_ai_for_updated_content(
     file_instructions=None,
     style_guidelines="",
     pr_description="",
+    skip_verification=False,
 ):
     is_markdown = file_path.endswith(".md")
     is_asciidoc = file_path.endswith(".adoc")
@@ -638,6 +641,11 @@ Return ONLY the corrected raw file content, no explanations."""
             return "NO_UPDATE_NEEDED"
 
     # ── Post-generation validation ────────────────────────────────────────
+    # Skipped in review mode — [review-docs] only posts suggestions for
+    # human review, so verification LLM calls are unnecessary.
+    if skip_verification:
+        return output
+
     # Step 1: Diff-based check for large content removals
     preservation_ok, preservation_issues = validate_content_preservation(current_content, output)
     if not preservation_ok:
@@ -670,12 +678,7 @@ Return ONLY the corrected raw file content, no explanations."""
         regen_prefix = (
             f"Your previous documentation update for `{file_path}` was "
             f"rejected because: {feedback}\n\n"
-            "Please try again. You MUST preserve all existing content that "
-            "is not directly affected by the code diff. Only add or modify "
-            "content that documents the changes shown in the diff. Do NOT "
-            "remove, rewrite, or reorganize existing sections, examples, "
-            "or explanations unless they are directly contradicted by the "
-            "diff.\n\n"
+            "Please try again, addressing the issues above.\n\n"
         )
 
         # Apply context budget to the regeneration prompt (finding: regen can

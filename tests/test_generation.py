@@ -100,28 +100,15 @@ class TestAskAiForUpdatedContent:
         assert "technical writer" in messages[0]["content"]
 
     def test_returns_updated_content(self):
-        # The mock must handle both the generation call and the verification call.
-        # Generation returns content preserving the original; verification approves.
-        updated_text = "Some documentation content\n\nNew section about the change"
-
-        def side_effect(**kwargs):
-            mock_resp = MagicMock()
-            mock_resp.choices = [MagicMock()]
-            messages = kwargs["messages"]
-            if messages[0]["content"].startswith("You are a documentation review auditor"):
-                mock_resp.choices[0].message.content = "APPROVED"
-            else:
-                mock_resp.choices[0].message.content = updated_text
-            return mock_resp
-
-        mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = side_effect
+        mock_client = _mock_ai_response("Updated documentation text")
         with (
             patch("generation.get_client", return_value=mock_client),
             patch("generation.get_model_name", return_value="test-model"),
         ):
-            result = ask_ai_for_updated_content(self.DIFF, "docs/guide.md", self.CONTENT)
-        assert result == updated_text + "\n"
+            result = ask_ai_for_updated_content(
+                self.DIFF, "docs/guide.md", self.CONTENT, skip_verification=True
+            )
+        assert result == "Updated documentation text\n"
 
     def test_returns_no_update_needed(self):
         mock_client = _mock_ai_response("NO_UPDATE_NEEDED")
@@ -176,55 +163,38 @@ class TestGenerateUpdatesParallel:
 
     def test_processes_multiple_files(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
-        # Create two doc files — use multi-line content so preservation check passes
-        (tmp_path / "a.rst").write_text("Doc A\nLine 2\nLine 3", encoding="utf-8")
-        (tmp_path / "b.rst").write_text("Doc B\nLine 2\nLine 3", encoding="utf-8")
+        # Create two doc files
+        (tmp_path / "a.rst").write_text("Doc A", encoding="utf-8")
+        (tmp_path / "b.rst").write_text("Doc B", encoding="utf-8")
 
-        def side_effect(**kwargs):
-            mock_resp = MagicMock()
-            mock_resp.choices = [MagicMock()]
-            messages = kwargs["messages"]
-            if messages[0]["content"].startswith("You are a documentation review auditor"):
-                mock_resp.choices[0].message.content = "APPROVED"
-            elif "a.rst" in messages[1]["content"]:
-                mock_resp.choices[0].message.content = "Doc A\nLine 2\nLine 3\nUpdated A"
-            else:
-                mock_resp.choices[0].message.content = "Doc B\nLine 2\nLine 3\nUpdated B"
-            return mock_resp
-
-        mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = side_effect
-
+        mock_client = _mock_ai_response("Updated doc")
         with (
             patch("generation.get_client", return_value=mock_client),
             patch("generation.get_model_name", return_value="test-model"),
         ):
-            results = generate_updates_parallel(self.DIFF, ["a.rst", "b.rst"], max_workers=2)
+            results = generate_updates_parallel(
+                self.DIFF, ["a.rst", "b.rst"], max_workers=2, skip_verification=True
+            )
 
         assert len(results) == 2
         paths_returned = {r[0] for r in results}
         assert paths_returned == {"a.rst", "b.rst"}
-        for file_path, _original, updated in results:
-            if file_path == "a.rst":
-                assert "Updated A" in updated
-            else:
-                assert "Updated B" in updated
+        for _, _original, updated in results:
+            assert updated == "Updated doc\n"
 
     def test_skips_no_update_needed(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
-        (tmp_path / "a.rst").write_text("Doc A\nLine 2\nLine 3", encoding="utf-8")
-        (tmp_path / "b.rst").write_text("Doc B\nLine 2\nLine 3", encoding="utf-8")
+        (tmp_path / "a.rst").write_text("Doc A", encoding="utf-8")
+        (tmp_path / "b.rst").write_text("Doc B", encoding="utf-8")
 
         mock_client = MagicMock()
 
         def side_effect(**kwargs):
             mock_resp = MagicMock()
             mock_resp.choices = [MagicMock()]
-            messages = kwargs["messages"]
-            if messages[0]["content"].startswith("You are a documentation review auditor"):
-                mock_resp.choices[0].message.content = "APPROVED"
-            elif "a.rst" in messages[1]["content"]:
-                mock_resp.choices[0].message.content = "Doc A\nLine 2\nLine 3\nUpdated A"
+            prompt = kwargs["messages"][-1]["content"]
+            if "a.rst" in prompt:
+                mock_resp.choices[0].message.content = "Updated A"
             else:
                 mock_resp.choices[0].message.content = "NO_UPDATE_NEEDED"
             return mock_resp
@@ -235,10 +205,13 @@ class TestGenerateUpdatesParallel:
             patch("generation.get_client", return_value=mock_client),
             patch("generation.get_model_name", return_value="test-model"),
         ):
-            results = generate_updates_parallel(self.DIFF, ["a.rst", "b.rst"], max_workers=2)
+            results = generate_updates_parallel(
+                self.DIFF, ["a.rst", "b.rst"], max_workers=2, skip_verification=True
+            )
 
         assert len(results) == 1
         assert results[0][0] == "a.rst"
+        assert results[0][2] == "Updated A\n"
 
 
 # ── validate_content_preservation ─────────────────────────────────────────

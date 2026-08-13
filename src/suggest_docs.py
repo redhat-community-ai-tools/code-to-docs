@@ -541,6 +541,7 @@ def main():
             file_instructions=file_instructions,
             style_guidelines=style_guidelines,
             pr_description=pr_description,
+            skip_verification=review_mode and not update_mode,
         )
 
         for file_path, _current, updated in files_with_content:
@@ -565,6 +566,7 @@ def main():
                 file_instructions=file_instructions,
                 style_guidelines=style_guidelines,
                 pr_description=pr_description,
+                skip_verification=review_mode and not update_mode,
             )
 
             if updated.strip() == "NO_UPDATE_NEEDED":
