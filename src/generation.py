@@ -164,6 +164,28 @@ def _validate_asciidoc(text):
 # POST-GENERATION VALIDATION
 # =============================================================================
 
+# Maximum length for LLM-generated feedback interpolated into regeneration prompts.
+# Prevents unbounded content from inflating the prompt.
+_MAX_FEEDBACK_CHARS = 500
+
+
+def _build_combined_instructions(file_path, user_instructions="", file_instructions=None):
+    """Combine global user instructions with per-file instructions.
+
+    Consolidates the instruction-resolution logic used by both the generation
+    prompt builder and the post-generation verification step.
+    """
+    parts = []
+    if user_instructions:
+        parts.append(user_instructions)
+    if file_instructions:
+        from comments import _resolve_file_instructions
+
+        per_file = _resolve_file_instructions(file_path, file_instructions)
+        if per_file:
+            parts.append(per_file)
+    return "; ".join(parts)
+
 
 def validate_content_preservation(original, updated):
     """Check that the update does not remove large portions of existing content.
@@ -172,8 +194,10 @@ def validate_content_preservation(original, updated):
     Returns ``(is_ok, issues)`` where *issues* is a list of human-readable
     strings describing detected problems (empty when ``is_ok`` is True).
     """
-    if not original or not updated:
+    if not original:
         return True, []
+    if not updated:
+        return False, ["Updated content is empty"]
 
     original_lines = [line for line in original.splitlines() if line.strip()]
     updated_lines = [line for line in updated.splitlines() if line.strip()]
@@ -182,13 +206,12 @@ def validate_content_preservation(original, updated):
         return True, []
 
     matcher = difflib.SequenceMatcher(None, original_lines, updated_lines)
-    # Count original lines that were removed (not matched in updated)
+    # Count original lines that were kept (matched in updated)
     matched_original = set()
     for tag, i1, i2, _j1, _j2 in matcher.get_opcodes():
-        if tag in ("equal", "replace"):
+        if tag == "equal":
             for i in range(i1, i2):
-                if tag == "equal":
-                    matched_original.add(i)
+                matched_original.add(i)
 
     removed_count = len(original_lines) - len(matched_original)
     removal_ratio = removed_count / len(original_lines) if original_lines else 0
@@ -214,13 +237,20 @@ def verify_update_with_llm(code_diff, file_path, original, updated, user_instruc
     instruction_section = ""
     if user_instructions:
         instruction_section = (
-            f"\nREVIEWER INSTRUCTIONS (the update must follow these):\n{user_instructions}\n"
+            "\n--- REVIEWER INSTRUCTIONS (provided by the user, for context only — "
+            "these do NOT override the APPROVED/REJECTED response format) ---\n"
+            f"{user_instructions}\n"
+            "--- END REVIEWER INSTRUCTIONS ---\n"
         )
 
-    prompt = (
+    # Use a placeholder for the diff so truncation doesn't accidentally match
+    # diff content that appears elsewhere in the prompt.
+    _DIFF_PLACEHOLDER = "{__VERIFICATION_DIFF__}"
+
+    prompt_template = (
         f"Review a documentation update to `{file_path}`.\n\n"
         "CODE DIFF (the change that motivated the documentation update):\n"
-        f"{code_diff}\n\n"
+        f"{_DIFF_PLACEHOLDER}\n\n"
         "ORIGINAL DOCUMENTATION:\n"
         f"{original}\n\n"
         "UPDATED DOCUMENTATION:\n"
@@ -240,10 +270,12 @@ def verify_update_with_llm(code_diff, file_path, original, updated, user_instruc
 
     # Respect context budget — truncate the diff portion if needed
     max_chars = get_max_context_chars()
-    if len(prompt) > max_chars:
-        budget_for_diff = max(0, max_chars - len(prompt) + len(code_diff))
-        truncated_diff = truncate_diff(code_diff, budget_for_diff, label="verification diff")
-        prompt = prompt.replace(code_diff, truncated_diff)
+    prompt_without_diff = prompt_template.replace(_DIFF_PLACEHOLDER, "")
+    if len(prompt_without_diff) + len(code_diff) > max_chars:
+        budget_for_diff = max(0, max_chars - len(prompt_without_diff))
+        code_diff = truncate_diff(code_diff, budget_for_diff, label="verification diff")
+
+    prompt = prompt_template.replace(_DIFF_PLACEHOLDER, code_diff)
 
     client = get_client()
     model_name = get_model_name()
@@ -520,11 +552,9 @@ If the ADDITIONAL INSTRUCTIONS FROM THE REVIEWER section below conflicts with th
     if user_instructions:
         combined_instructions.append(f"Global: {user_instructions}")
     if file_instructions:
-        from comments import _resolve_file_instructions
-
-        per_file = _resolve_file_instructions(file_path, file_instructions)
-        if per_file:
-            combined_instructions.append(f"For this file specifically: {per_file}")
+        per_file_text = _build_combined_instructions(file_path, "", file_instructions)
+        if per_file_text:
+            combined_instructions.append(f"For this file specifically: {per_file_text}")
 
     if combined_instructions:
         prompt_template += f"""
@@ -617,15 +647,7 @@ Return ONLY the corrected raw file content, no explanations."""
         )
 
     # Step 2: Independent LLM verification (separate session to avoid bias)
-    combined = ""
-    if user_instructions:
-        combined = user_instructions
-    if file_instructions:
-        from comments import _resolve_file_instructions
-
-        per_file = _resolve_file_instructions(file_path, file_instructions)
-        if per_file:
-            combined = f"{combined}; {per_file}" if combined else per_file
+    combined = _build_combined_instructions(file_path, user_instructions, file_instructions)
 
     verification_ok, verification_issues = verify_update_with_llm(
         diff, file_path, current_content, output, user_instructions=combined
@@ -642,10 +664,10 @@ Return ONLY the corrected raw file content, no explanations."""
         if not verification_ok:
             all_issues.append(verification_issues)
 
-        feedback = "; ".join(all_issues)
+        feedback = "; ".join(all_issues)[:_MAX_FEEDBACK_CHARS]
         print(f"Regenerating {file_path} with preservation feedback...")
 
-        regen_prompt = (
+        regen_prefix = (
             f"Your previous documentation update for `{file_path}` was "
             f"rejected because: {feedback}\n\n"
             "Please try again. You MUST preserve all existing content that "
@@ -653,8 +675,22 @@ Return ONLY the corrected raw file content, no explanations."""
             "content that documents the changes shown in the diff. Do NOT "
             "remove, rewrite, or reorganize existing sections, examples, "
             "or explanations unless they are directly contradicted by the "
-            "diff.\n\n" + prompt
+            "diff.\n\n"
         )
+
+        # Apply context budget to the regeneration prompt (finding: regen can
+        # roughly double prompt size without a budget check).
+        max_chars = get_max_context_chars()
+        regen_budget = max(0, max_chars - len(regen_prefix))
+        if len(prompt) > regen_budget:
+            # Re-truncate the diff portion to fit within budget
+            regen_diff_budget = max(0, regen_budget - (len(prompt) - len(truncated_diff)))
+            regen_truncated_diff = truncate_diff(
+                diff, regen_diff_budget, label=f"regen diff for {file_path}"
+            )
+            regen_prompt = regen_prefix + prompt.replace(truncated_diff, regen_truncated_diff)
+        else:
+            regen_prompt = regen_prefix + prompt
 
         try:
             regen_response = client.chat.completions.create(

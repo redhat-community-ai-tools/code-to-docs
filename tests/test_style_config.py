@@ -144,6 +144,8 @@ class TestRetryLoop:
             current_content=current_content,
         )
         assert "Fixed addition" in result.strip()
+        # 3 LLM calls: initial generation, format-fix retry, post-generation verification
+        assert client.chat.completions.create.call_count == 3
 
     @patch("generation.get_client")
     @patch("generation.get_model_name", return_value="test-model")

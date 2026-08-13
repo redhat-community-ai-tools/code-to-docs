@@ -204,6 +204,11 @@ class TestGenerateUpdatesParallel:
         assert len(results) == 2
         paths_returned = {r[0] for r in results}
         assert paths_returned == {"a.rst", "b.rst"}
+        for file_path, _original, updated in results:
+            if file_path == "a.rst":
+                assert "Updated A" in updated
+            else:
+                assert "Updated B" in updated
 
     def test_skips_no_update_needed(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
@@ -277,10 +282,11 @@ class TestValidateContentPreservation:
         assert ok is True
         assert issues == []
 
-    def test_empty_updated_passes(self):
+    def test_empty_updated_fails(self):
         ok, issues = validate_content_preservation("Some content", "")
-        assert ok is True
-        assert issues == []
+        assert ok is False
+        assert len(issues) == 1
+        assert "empty" in issues[0].lower()
 
     def test_blank_lines_ignored(self):
         """Blank lines should not count toward removal detection."""
