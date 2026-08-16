@@ -1,10 +1,10 @@
-name: 'Upstream Documentation Enhancer'
-description: 'AI-powered documentation enhancer that automatically updates docs based on code changes'
-author: 'Your Name'
+name: 'Code-to-Docs'
+description: 'AI-powered GitHub Action that analyzes code changes and updates documentation using any OpenAI-compatible LLM'
+author: 'Red Hat Community AI Tools'
 
 branding:
-  icon: 'book'
-  color: 'blue'
+  icon: 'book-open'
+  color: 'red'
 
 inputs:
   model-api-base:
