@@ -191,6 +191,33 @@ class TestParseUpdateInstructions:
         assert "config.md: another example" in global_inst
         assert file_inst == {}
 
+    def test_cross_delimiter_fence_not_closed(self):
+        """A backtick-opened fence should not be closed by tilde delimiters."""
+        comment = "[update-docs] Update the docs:\n```\n~~~\nfile.rst: add a new section\n```\n"
+        global_inst, file_inst = parse_update_instructions(comment)
+        # ~~~ should not close the backtick fence, so file.rst line
+        # remains inside the fence and is not a per-file instruction
+        assert "file.rst" not in file_inst
+        assert "file.rst: add a new section" in global_inst
+
+    def test_cross_delimiter_tilde_opened_backtick_no_close(self):
+        """A tilde-opened fence should not be closed by backtick delimiters."""
+        comment = (
+            "[update-docs] see this:\n"
+            "~~~\n"
+            "```\n"
+            "config.rst: update settings\n"
+            "~~~\n"
+            "health.md: fix intro"
+        )
+        global_inst, file_inst = parse_update_instructions(comment)
+        # ``` should not close the tilde fence, so config.rst stays global
+        assert "config.rst" not in file_inst
+        assert "config.rst: update settings" in global_inst
+        # health.md is after the tilde fence closes, so it is per-file
+        assert "health.md" in file_inst
+        assert file_inst["health.md"] == "fix intro"
+
 
 # ── _resolve_file_instructions ───────────────────────────────────────────────
 
