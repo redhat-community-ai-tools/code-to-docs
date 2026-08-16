@@ -15,7 +15,7 @@ AI-powered GitHub Action that analyzes code changes and generates documentation 
 | `suggest_docs.py` | Main orchestrator — command detection, file discovery, generation, PR/comment posting |
 | `config.py` | Environment configuration, LLM client setup, style config loading |
 | `discovery.py` | File discovery — index-based optimized path and full-scan fallback |
-| `generation.py` | LLM content generation, file reading/writing, summary caching |
+| `generation.py` | LLM content generation, post-generation validation, file reading/writing, summary caching |
 | `doc_index.py` | Semantic index system — build, cache, fetch, commit indexes |
 | `comments.py` | PR comment building, parsing previous reviews, posting |
 | `github_ops.py` | Git operations, docs environment setup, pushing/creating PRs |

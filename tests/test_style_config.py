@@ -133,7 +133,7 @@ class TestRetryLoop:
             current_content="Title\n=====\n\nOld content",
             skip_verification=True,
         )
-        assert result.strip() == "Fixed RST content"
+        assert result.content.strip() == "Fixed RST content"
         assert client.chat.completions.create.call_count == 2
 
     @patch("generation.get_client")
@@ -155,4 +155,4 @@ class TestRetryLoop:
             file_path="docs/guide.md",
             current_content="# Title\n\nContent",
         )
-        assert result.strip() == "NO_UPDATE_NEEDED"
+        assert result.content.strip() == "NO_UPDATE_NEEDED"

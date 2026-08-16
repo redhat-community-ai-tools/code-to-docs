@@ -20,7 +20,9 @@ Comment on any Pull Request:
 2. Uncheck any files you don't want updated
 3. Comment `[update-docs]` to create a PR with only the checked files
 
-You can guide how the AI generates doc updates by adding instructions in your `[update-docs]` comment — global on the first line, per-file on subsequent lines:
+Note: `[update-docs]` runs post-generation validation (content preservation check and an independent LLM review) that `[review-docs]` skips, so the final committed content may differ slightly from the preview.
+
+You can guide how the AI generates doc updates by adding instructions in your `[update-docs]` comment. Lines matching `filename.ext: instruction` are per-file instructions; all other lines are global instructions passed to the LLM:
 
 ```
 [update-docs] keep changes minimal

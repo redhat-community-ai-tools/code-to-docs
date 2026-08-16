@@ -8,6 +8,7 @@ sys.modules.setdefault("openai", MagicMock())
 
 # ── load_style_config_from_branch ───────────────────────────────────────────
 from config import load_style_config_from_branch
+from generation import GenerationResult
 from suggest_docs import (
     _get_pr_description,
     _normalize_github_url,
@@ -15,6 +16,11 @@ from suggest_docs import (
     _resolve_pr_push_target,
     main,
 )
+
+
+def _gr(content):
+    """Shorthand to wrap content in a GenerationResult with 'skipped' status."""
+    return GenerationResult(content, "skipped", "")
 
 
 class TestLoadStyleConfigFromBranch:
@@ -338,7 +344,7 @@ class TestMainReviewMode:
     @patch("suggest_docs.post_review_comment")
     @patch(
         "suggest_docs.generate_updates_parallel",
-        return_value=[("guide.rst", "old", "new"), ("api.md", "old2", "new2")],
+        return_value=[("guide.rst", "old", _gr("new")), ("api.md", "old2", _gr("new2"))],
     )
     @patch("suggest_docs.find_relevant_files_optimized", return_value=["guide.rst", "api.md"])
     @patch("suggest_docs.setup_docs_environment", return_value=True)
@@ -371,7 +377,10 @@ class TestMainUpdateMode:
     @patch("suggest_docs.overwrite_file", return_value=True)
     @patch(
         "suggest_docs.generate_updates_parallel",
-        return_value=[("guide.rst", "old content", "new content"), ("api.md", "old2", "new2")],
+        return_value=[
+            ("guide.rst", "old content", _gr("new content")),
+            ("api.md", "old2", _gr("new2")),
+        ],
     )
     @patch("suggest_docs.find_relevant_files_optimized", return_value=["guide.rst", "api.md"])
     @patch("suggest_docs.setup_docs_environment", return_value=True)
@@ -410,7 +419,7 @@ class TestMainUpdateMode:
     @patch("suggest_docs.overwrite_file", return_value=True)
     @patch(
         "suggest_docs.generate_updates_parallel",
-        return_value=[("guide.rst", "old", "new"), ("ref.adoc", "old2", "new2")],
+        return_value=[("guide.rst", "old", _gr("new")), ("ref.adoc", "old2", _gr("new2"))],
     )
     @patch("suggest_docs.find_relevant_files_optimized")
     @patch("suggest_docs.setup_docs_environment", return_value=True)
@@ -467,7 +476,7 @@ class TestMainUpdateModeMergedPr:
     @patch("suggest_docs.overwrite_file", return_value=True)
     @patch(
         "suggest_docs.generate_updates_parallel",
-        return_value=[("guide.md", "old", "new"), ("api.md", "old2", "new2")],
+        return_value=[("guide.md", "old", _gr("new")), ("api.md", "old2", _gr("new2"))],
     )
     @patch("suggest_docs.find_relevant_files_optimized", return_value=["guide.md", "api.md"])
     @patch("suggest_docs.setup_docs_environment", return_value=True)
@@ -665,7 +674,7 @@ class TestMainDryRun:
     @patch("suggest_docs.overwrite_file")
     @patch(
         "suggest_docs.generate_updates_parallel",
-        return_value=[("guide.rst", "old", "new"), ("api.md", "old2", "new2")],
+        return_value=[("guide.rst", "old", _gr("new")), ("api.md", "old2", _gr("new2"))],
     )
     @patch("suggest_docs.find_relevant_files_optimized", return_value=["guide.rst", "api.md"])
     @patch("suggest_docs.setup_docs_environment", return_value=True)
