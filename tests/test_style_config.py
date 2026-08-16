@@ -131,6 +131,7 @@ class TestRetryLoop:
             diff="diff --git a/foo.py\n+new line",
             file_path="docs/guide.rst",
             current_content="Title\n=====\n\nOld content",
+            skip_verification=True,
         )
         assert result.strip() == "Fixed RST content"
         assert client.chat.completions.create.call_count == 2
