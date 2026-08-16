@@ -207,7 +207,12 @@ def _push_docs_pr_for_merged(pr_number, docs_branch, docs_files, gh_token):
 
 
 def _build_verification_summary(verification_statuses):
-    """Build a one-line summary when any file had a non-trivial verification outcome."""
+    """Build a counts-only summary when any file had a non-trivial verification outcome.
+
+    Uses counts only, never model-generated prose, because the summary is
+    interpolated into a Markdown comment that parse_previous_review() later
+    parses for checkbox state.
+    """
     counts = {}
     for _fp, (status, _notes) in verification_statuses.items():
         if status in ("passed", "skipped"):
@@ -619,7 +624,6 @@ def main():
                 commit_info,
                 include_full_content=False,
                 feature_section=feature_section,
-                verification_summary=verification_summary,
             )
 
         if update_mode and modified_files:
@@ -789,6 +793,9 @@ def main():
                         confirm_parts.append(
                             "A docs PR has been created/updated with these changes."
                         )
+                if verification_summary:
+                    confirm_parts.append("")
+                    confirm_parts.append(f"_{verification_summary}_")
                 confirm_body = "\n".join(confirm_parts)
                 confirm_file = Path("/tmp/update_confirm.md")
                 confirm_file.write_text(confirm_body, encoding="utf-8")

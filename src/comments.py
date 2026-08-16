@@ -328,12 +328,7 @@ def parse_previous_review(pr_number):
 
 
 def post_review_comment(
-    files_with_content,
-    pr_number,
-    commit_info=None,
-    include_full_content=True,
-    feature_section="",
-    verification_summary="",
+    files_with_content, pr_number, commit_info=None, include_full_content=True, feature_section=""
 ):
     """
     Post a review comment on the PR with documentation suggestions
@@ -343,7 +338,6 @@ def post_review_comment(
         pr_number: PR number
         commit_info: Commit information dict
         include_full_content: If True, include full content; if False, only summary
-        verification_summary: Optional one-line verification status note
     """
     if not pr_number or pr_number == "unknown":
         print("Warning: No PR number available, cannot post review comment")
@@ -448,10 +442,6 @@ def post_review_comment(
         comment_parts.append(
             "  - **Per-file** (next lines): <code>config-ref.rst: only update the CLI usage example</code>"
         )
-        if verification_summary:
-            comment_parts.append("")
-            comment_parts.append(f"_{verification_summary}_")
-
         comment_parts.append("")
         comment_parts.append("*Powered by code-to-docs AI* \u2728")
 
