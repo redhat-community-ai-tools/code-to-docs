@@ -1,0 +1,41 @@
+name: Eval
+
+on:
+  workflow_dispatch:
+    inputs:
+      case:
+        description: "Run a specific case (leave empty for all)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+      - run: uv python install 3.12
+      - run: uv sync --extra dev
+
+      - name: Run evals
+        env:
+          MODEL_API_BASE: ${{ secrets.MODEL_API_BASE }}
+          MODEL_API_KEY: ${{ secrets.MODEL_API_KEY }}
+          MODEL_NAME: ${{ secrets.MODEL_NAME }}
+        run: |
+          args="--verbose"
+          if [ -n "${{ inputs.case }}" ]; then
+            args="$args --case ${{ inputs.case }}"
+          fi
+          uv run python evals/run.py $args
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: eval-results
+          path: evals/results/
+          if-no-files-found: ignore
