@@ -514,6 +514,16 @@ def main():
             print("Asking AI for relevant files...")
             relevant_files = ask_ai_for_relevant_files(diff, file_previews)
 
+    # Merge in declared docs (front-matter linkage). These skip the LLM call.
+    from linkage import find_declared_docs
+
+    declared_docs = find_declared_docs(diff)
+    declared_paths = {d[0] for d in declared_docs}
+    if declared_paths:
+        print(f"Declared docs (front-matter linkage): {sorted(declared_paths)}")
+        existing = set(relevant_files) if relevant_files else set()
+        relevant_files = sorted(existing | declared_paths)
+
     if not relevant_files:
         print("AI did not suggest any files.")
         if review_mode or update_mode or feature_mode:
