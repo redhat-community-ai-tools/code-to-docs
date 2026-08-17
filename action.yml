@@ -81,6 +81,10 @@ inputs:
     description: 'Cost per 1M output tokens (USD). When set alongside cost-per-1m-input, an estimated cost is shown in the token usage summary. When unset, only token counts are reported.'
     required: false
     default: ''
+  debug-artifacts:
+    description: 'When true, include full prompt and response text in the run log artifact. Default false.'
+    required: false
+    default: 'false'
 
 outputs:
   status:
@@ -114,3 +118,4 @@ runs:
     STYLE_CONFIG_PATH: ${{ inputs.style-config-path }}
     COST_PER_1M_INPUT: ${{ inputs.cost-per-1m-input }}
     COST_PER_1M_OUTPUT: ${{ inputs.cost-per-1m-output }}
+    DEBUG_ARTIFACTS: ${{ inputs.debug-artifacts }}

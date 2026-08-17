@@ -54,6 +54,7 @@ from jira_integration import (
     format_feature_review_section,
     parse_feature_command,
 )
+from run_log import RunLog
 from security_utils import run_command_safe, sanitize_output
 from telemetry import UsageTracker
 
@@ -252,6 +253,10 @@ def main():
         cost_per_1m_input=float(cost_input) if cost_input else None,
         cost_per_1m_output=float(cost_output) if cost_output else None,
     )
+
+    # Initialize structured run log
+    debug_artifacts = os.environ.get("DEBUG_ARTIFACTS", "false").lower() == "true"
+    run_log = RunLog(include_prompts=debug_artifacts)
 
     # Load persistent style guidelines from the base branch so the AI always
     # uses the repo's current style config, even if the PR branch predates it.
@@ -801,6 +806,9 @@ def main():
             )
         else:
             print("All documentation is already up to date — no PR created.")
+
+    if run_log.has_entries:
+        print(f"Run log written to: {run_log.path}")
 
 
 if __name__ == "__main__":
