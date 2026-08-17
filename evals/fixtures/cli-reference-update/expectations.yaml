@@ -1,0 +1,12 @@
+selected:
+  - docs/cli.md
+
+content_checks:
+  docs/cli.md:
+    contains:
+      - "--output-format"
+      - "json"
+      - "csv"
+    heading_present:
+      - "# CLI Reference"
+      - "## Options"
