@@ -75,6 +75,23 @@ With this config, generated PRs will be titled `:book: docs: update documentatio
 
 This file is optional — if missing, the tool uses default titles with no prefix.
 
+## Excluding Files
+
+You can exclude files from AI analysis by creating `.code-to-docs/ignore` in your repository root. This file uses gitignore-style glob patterns, one per line:
+
+```
+# Generated API reference (managed by a separate tool)
+generated/*
+
+# Landing page (hand-crafted, should not be auto-updated)
+docs/index.md
+
+# Vendored docs
+vendor/**/*.md
+```
+
+Excluded files are never selected, never read into an LLM prompt, and are omitted from index-based selection results. The file is loaded from the base branch, consistent with other `.code-to-docs/` configuration.
+
 ## How It Works
 
 1. **Triggered by PR Comments** - When someone comments `[review-docs]`, `[update-docs]`, or `[review-feature]` on a Pull Request

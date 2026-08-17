@@ -259,6 +259,51 @@ def get_pr_title_prefix():
     return f"{prefix} " if prefix else ""
 
 
+# =============================================================================
+# IGNORE LIST
+# =============================================================================
+
+_IGNORE_FILE = ".code-to-docs/ignore"
+
+
+def load_ignore_patterns():
+    """Load gitignore-style exclusion patterns from the base branch.
+
+    Returns a list of pattern strings. Empty list if the file is absent.
+    """
+    base_branch = os.environ.get("DOCS_BASE_BRANCH") or "main"
+    try:
+        result = run_command_safe(
+            ["git", "show", f"origin/{base_branch}:{_IGNORE_FILE}"],
+            check=False,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return []
+        lines = result.stdout.strip().splitlines()
+        patterns = [ln.strip() for ln in lines if ln.strip() and not ln.strip().startswith("#")]
+        if patterns:
+            print(f"Loaded {len(patterns)} ignore pattern(s) from {base_branch}:{_IGNORE_FILE}")
+        return patterns
+    except Exception as e:
+        print(f"Warning: Could not load ignore patterns: {sanitize_output(str(e))}")
+        return []
+
+
+def is_path_ignored(path, patterns):
+    """Check whether a file path matches any gitignore-style pattern."""
+    if not patterns:
+        return False
+    from fnmatch import fnmatch
+
+    path_str = str(path)
+    for pattern in patterns:
+        if fnmatch(path_str, pattern) or fnmatch(path_str, f"**/{pattern}"):
+            return True
+        if "/" in pattern and fnmatch(path_str, pattern):
+            return True
+    return False
+
+
 def check_context_error(e):
     """
     If e is a context-window error, print actionable guidance.
