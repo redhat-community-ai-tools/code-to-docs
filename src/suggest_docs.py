@@ -258,6 +258,31 @@ def main():
         print(f"Index build complete: {result['status']}")
         return
 
+    # Handle detect-only mode (runs on pull_request events, not comments)
+    mode = os.environ.get("MODE", "comment")
+    if mode == "detect-only":
+        from detect import exit_with_severity, extract_changed_doc_paths, run_detect_only
+
+        print("Mode: detect-only")
+        if not setup_docs_environment():
+            print("Failed to set up docs environment")
+            return
+        diff = get_diff()
+        if not diff:
+            print("No diff found.")
+            return
+        changed_docs = extract_changed_doc_paths(diff)
+        relevant_files = find_relevant_files_optimized(diff)
+        if relevant_files is None:
+            file_previews = get_file_content_or_summaries()
+            relevant_files = ask_ai_for_relevant_files(diff, file_previews) if file_previews else []
+        untouched, summary = run_detect_only(diff, relevant_files, changed_docs)
+        for line in summary:
+            print(line)
+        severity = os.environ.get("DOCS_DRIFT_SEVERITY", "warn")
+        exit_with_severity(untouched, severity)
+        return
+
     # Detect which command was used
     comment_body = os.environ.get("COMMENT_BODY", "")
 
