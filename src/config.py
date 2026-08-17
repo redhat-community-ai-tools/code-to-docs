@@ -259,6 +259,55 @@ def get_pr_title_prefix():
     return f"{prefix} " if prefix else ""
 
 
+_VALIDATION_DEFAULTS = {
+    "removal-threshold": 0.20,
+    "min-lines": 30,
+    "llm-verification": True,
+}
+
+
+def get_validation_config(repo_config=None):
+    """Extract and validate the validation settings from repo config.
+
+    Returns a dict with keys: removal_threshold, min_lines, llm_verification.
+    """
+    defaults = _VALIDATION_DEFAULTS
+    if repo_config is None:
+        repo_config = load_repo_config()
+
+    v = repo_config.get("validation", {})
+    if not isinstance(v, dict):
+        print("Warning: validation config is not an object, using defaults")
+        v = {}
+
+    threshold = v.get("removal-threshold", defaults["removal-threshold"])
+    if not isinstance(threshold, (int, float)) or not (0.0 <= threshold <= 1.0):
+        print(
+            f"Warning: invalid removal-threshold {threshold!r}, "
+            f"using default {defaults['removal-threshold']}"
+        )
+        threshold = defaults["removal-threshold"]
+
+    min_lines = v.get("min-lines", defaults["min-lines"])
+    if not isinstance(min_lines, int) or min_lines < 0:
+        print(f"Warning: invalid min-lines {min_lines!r}, using default {defaults['min-lines']}")
+        min_lines = defaults["min-lines"]
+
+    llm_verify = v.get("llm-verification", defaults["llm-verification"])
+    if not isinstance(llm_verify, bool):
+        print(
+            f"Warning: invalid llm-verification {llm_verify!r}, "
+            f"using default {defaults['llm-verification']}"
+        )
+        llm_verify = defaults["llm-verification"]
+
+    return {
+        "removal_threshold": float(threshold),
+        "min_lines": int(min_lines),
+        "llm_verification": llm_verify,
+    }
+
+
 # =============================================================================
 # IGNORE LIST
 # =============================================================================

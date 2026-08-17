@@ -63,17 +63,23 @@ You can configure code-to-docs behavior with a JSON config file in your reposito
 | Key | Description | Example |
 |-----|-------------|---------|
 | `pr-title-prefix` | Prefix prepended to all PR titles and commit messages created by the tool | `":book:"` |
+| `validation.removal-threshold` | Fraction of original lines that can be removed before flagging (0.0 to 1.0) | `0.30` |
+| `validation.min-lines` | Files shorter than this skip the ratio-based preservation check | `20` |
+| `validation.llm-verification` | Set to `false` to skip the independent LLM verification call | `false` |
 
 **Example `.code-to-docs/config.json`:**
 ```json
 {
-  "pr-title-prefix": ":book:"
+  "pr-title-prefix": ":book:",
+  "validation": {
+    "removal-threshold": 0.30,
+    "min-lines": 20,
+    "llm-verification": true
+  }
 }
 ```
 
-With this config, generated PRs will be titled `:book: docs: update documentation from PR #123` instead of `docs: update documentation from PR #123`.
-
-This file is optional — if missing, the tool uses default titles with no prefix.
+This file is optional. Missing or invalid values fall back to defaults with a warning.
 
 ## Excluding Files
 
