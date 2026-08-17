@@ -427,6 +427,13 @@ def main():
         previous_review = parse_previous_review(pr_number)
 
         if previous_review["review_found"]:
+            suggested = len(previous_review["accepted_files"]) + len(
+                previous_review["rejected_files"]
+            )
+            accepted = len(previous_review["accepted_files"])
+            if suggested > 0:
+                print(f"Acceptance rate: suggested={suggested} accepted={accepted}")
+
             if previous_review["review_commit"] and commit_info:
                 if previous_review["review_commit"] != commit_info["short_hash"]:
                     print(
