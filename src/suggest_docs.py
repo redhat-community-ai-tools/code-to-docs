@@ -258,6 +258,23 @@ def main():
         print(f"Index build complete: {result['status']}")
         return
 
+    # Handle audit mode (scheduled full-repo drift check)
+    mode = os.environ.get("MODE", "comment")
+    if mode == "audit":
+        from audit import format_audit_report, post_audit_issue, run_audit
+
+        print("Mode: audit")
+        if not setup_docs_environment():
+            print("Failed to set up docs environment")
+            return
+        budget = int(os.environ.get("AUDIT_BUDGET", "20"))
+        findings = run_audit(max_files=budget)
+        report = format_audit_report(findings)
+        print(report)
+        if findings and not args.dry_run:
+            post_audit_issue(findings)
+        return
+
     # Detect which command was used
     comment_body = os.environ.get("COMMENT_BODY", "")
 
