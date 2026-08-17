@@ -55,6 +55,7 @@ from jira_integration import (
     parse_feature_command,
 )
 from security_utils import run_command_safe, sanitize_output
+from telemetry import UsageTracker
 
 _GITHUB_NAME_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
 
@@ -243,6 +244,14 @@ def main():
     raw = os.environ.get("MAX_CONTEXT_CHARS", "")
     source = "MAX_CONTEXT_CHARS" if raw else "default"
     print(f"Context budget: {budget:,} chars (from {source})")
+
+    # Initialize token usage tracking
+    cost_input = os.environ.get("COST_PER_1M_INPUT", "")
+    cost_output = os.environ.get("COST_PER_1M_OUTPUT", "")
+    usage_tracker = UsageTracker(
+        cost_per_1m_input=float(cost_input) if cost_input else None,
+        cost_per_1m_output=float(cost_output) if cost_output else None,
+    )
 
     # Load persistent style guidelines from the base branch so the AI always
     # uses the repo's current style config, even if the PR branch predates it.
@@ -542,6 +551,7 @@ def main():
             file_instructions=file_instructions,
             style_guidelines=style_guidelines,
             pr_description=pr_description,
+            usage_tracker=usage_tracker,
         )
 
         for file_path, _current, updated in files_with_content:
@@ -566,6 +576,7 @@ def main():
                 file_instructions=file_instructions,
                 style_guidelines=style_guidelines,
                 pr_description=pr_description,
+                usage_tracker=usage_tracker,
             )
 
             if updated.strip() == "NO_UPDATE_NEEDED":
@@ -762,6 +773,9 @@ def main():
                         confirm_parts.append(
                             "A docs PR has been created/updated with these changes."
                         )
+                if usage_tracker.has_records:
+                    confirm_parts.append("")
+                    confirm_parts.append(usage_tracker.format_summary())
                 confirm_body = "\n".join(confirm_parts)
                 confirm_file = Path("/tmp/update_confirm.md")
                 confirm_file.write_text(confirm_body, encoding="utf-8")
