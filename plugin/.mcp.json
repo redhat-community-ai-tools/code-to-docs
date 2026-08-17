@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "code-to-docs": {
+      "command": "uv",
+      "args": ["run", "python", "src/mcp_server.py"],
+      "cwd": ".."
+    }
+  }
+}
