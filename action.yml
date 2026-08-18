@@ -73,6 +73,14 @@ inputs:
     description: 'Path to a Markdown style configuration file (.md) containing documentation style guidelines. If not set, auto-detects .code-to-docs/style.md in the repository root.'
     required: false
     default: ''
+  mode:
+    description: 'Execution mode: "comment" (default), "detect-only", or "audit" (scheduled full-repo drift check)'
+    required: false
+    default: 'comment'
+  audit-budget:
+    description: 'Maximum number of doc files to audit per run (default: 20). Controls cost on large repos.'
+    required: false
+    default: '20'
 
 outputs:
   status:
@@ -104,3 +112,5 @@ runs:
     GOOGLE_SA_KEY: ${{ inputs.google-sa-key }}
     MAX_CONTEXT_CHARS: ${{ inputs.max-context-chars }}
     STYLE_CONFIG_PATH: ${{ inputs.style-config-path }}
+    MODE: ${{ inputs.mode }}
+    AUDIT_BUDGET: ${{ inputs.audit-budget }}
