@@ -1,0 +1,9 @@
+selected:
+  - docs/config.md
+
+content_checks:
+  docs/config.md:
+    contains:
+      - "max_connections"
+    heading_present:
+      - "# Configuration"
