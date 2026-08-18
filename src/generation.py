@@ -157,6 +157,7 @@ def generate_updates_parallel(
     file_instructions=None,
     style_guidelines="",
     pr_description="",
+    usage_tracker=None,
 ):
     """
     Generate documentation updates in parallel.
@@ -190,6 +191,7 @@ def generate_updates_parallel(
             file_instructions=file_instructions,
             style_guidelines=style_guidelines,
             pr_description=pr_description,
+            usage_tracker=usage_tracker,
         )
 
         if updated.strip() == "NO_UPDATE_NEEDED":
@@ -240,6 +242,7 @@ def ask_ai_for_updated_content(
     file_instructions=None,
     style_guidelines="",
     pr_description="",
+    usage_tracker=None,
 ):
     is_markdown = file_path.endswith(".md")
     is_asciidoc = file_path.endswith(".adoc")
@@ -421,6 +424,8 @@ The human reviewer has provided the following guidance. Follow these instruction
                 {"role": "user", "content": prompt},
             ],
         )
+        if usage_tracker:
+            usage_tracker.record("generation", response)
         output = (response.choices[0].message.content or "").strip()
     except Exception as e:
         check_context_error(e)
@@ -463,6 +468,8 @@ Return ONLY the corrected raw file content, no explanations."""
                         {"role": "user", "content": fix_prompt},
                     ],
                 )
+                if usage_tracker:
+                    usage_tracker.record("format-fix", fix_response)
                 output = (fix_response.choices[0].message.content or "").strip()
                 output = strip_code_fences(output)
                 if not output.endswith("\n"):

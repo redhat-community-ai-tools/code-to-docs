@@ -73,6 +73,18 @@ inputs:
     description: 'Path to a Markdown style configuration file (.md) containing documentation style guidelines. If not set, auto-detects .code-to-docs/style.md in the repository root.'
     required: false
     default: ''
+  cost-per-1m-input:
+    description: 'Cost per 1M input tokens (USD). When set alongside cost-per-1m-output, an estimated cost is shown in the token usage summary. When unset, only token counts are reported.'
+    required: false
+    default: ''
+  cost-per-1m-output:
+    description: 'Cost per 1M output tokens (USD). When set alongside cost-per-1m-input, an estimated cost is shown in the token usage summary. When unset, only token counts are reported.'
+    required: false
+    default: ''
+  debug-artifacts:
+    description: 'When true, include full prompt and response text in the run log artifact. Default false.'
+    required: false
+    default: 'false'
 
 outputs:
   status:
@@ -81,6 +93,8 @@ outputs:
     description: 'JSON array of modified files'
   pr-created:
     description: 'Whether a PR was created'
+  acceptance-rate:
+    description: 'Suggestion acceptance rate from previous review (e.g. "4/6")'
 
 runs:
   using: 'docker'
@@ -104,3 +118,6 @@ runs:
     GOOGLE_SA_KEY: ${{ inputs.google-sa-key }}
     MAX_CONTEXT_CHARS: ${{ inputs.max-context-chars }}
     STYLE_CONFIG_PATH: ${{ inputs.style-config-path }}
+    COST_PER_1M_INPUT: ${{ inputs.cost-per-1m-input }}
+    COST_PER_1M_OUTPUT: ${{ inputs.cost-per-1m-output }}
+    DEBUG_ARTIFACTS: ${{ inputs.debug-artifacts }}
