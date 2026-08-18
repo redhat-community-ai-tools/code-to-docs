@@ -33,6 +33,7 @@ from config import (
     get_max_context_chars,
     get_model_name,
     get_pr_title_prefix,
+    get_validation_config,
     load_style_config_from_branch,
 )
 from discovery import (
@@ -247,6 +248,8 @@ def main():
     # Load persistent style guidelines from the base branch so the AI always
     # uses the repo's current style config, even if the PR branch predates it.
     style_guidelines = load_style_config_from_branch()
+
+    validation_config = get_validation_config()
 
     # Handle --build-index mode
     if args.build_index:
@@ -542,6 +545,7 @@ def main():
             file_instructions=file_instructions,
             style_guidelines=style_guidelines,
             pr_description=pr_description,
+            validation_config=validation_config,
         )
 
         for file_path, _current, updated in files_with_content:
@@ -566,6 +570,7 @@ def main():
                 file_instructions=file_instructions,
                 style_guidelines=style_guidelines,
                 pr_description=pr_description,
+                validation_config=validation_config,
             )
 
             if updated.strip() == "NO_UPDATE_NEEDED":
