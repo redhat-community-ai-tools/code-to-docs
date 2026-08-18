@@ -73,6 +73,10 @@ inputs:
     description: 'Path to a Markdown style configuration file (.md) containing documentation style guidelines. If not set, auto-detects .code-to-docs/style.md in the repository root.'
     required: false
     default: ''
+  index-storage:
+    description: 'How to persist semantic indexes: "cache" (Actions cache, default), "pr" (open a PR to main), or "none" (no persistence)'
+    required: false
+    default: 'cache'
 
 outputs:
   status:
@@ -104,3 +108,4 @@ runs:
     GOOGLE_SA_KEY: ${{ inputs.google-sa-key }}
     MAX_CONTEXT_CHARS: ${{ inputs.max-context-chars }}
     STYLE_CONFIG_PATH: ${{ inputs.style-config-path }}
+    INDEX_STORAGE: ${{ inputs.index-storage }}
