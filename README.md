@@ -268,6 +268,36 @@ uv run pre-commit install
 
 CI enforces lint, format, and a 60% test coverage threshold on every PR.
 
+## Detect-Only Mode (Docs Drift Check)
+
+For teams that want to catch documentation drift without generating updates, use `mode: detect-only` on `pull_request` events:
+
+```yaml
+name: Docs Drift Check
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  check-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: redhat-community-ai-tools/code-to-docs@main
+        with:
+          model-api-base: ${{ secrets.MODEL_API_BASE }}
+          model-api-key: ${{ secrets.MODEL_API_KEY }}
+          model-name: ${{ secrets.MODEL_NAME }}
+          docs-repo-url: ${{ secrets.DOCS_REPO_URL }}
+          mode: detect-only
+          docs-drift-severity: warn  # or "error" to fail the check
+```
+
+This identifies which doc files are affected by the PR's code changes and reports any that were not updated. It generates nothing and opens no PR. Set `docs-drift-severity: error` to use it as a required status check.
+
 ## Performance Optimization
 
 The action builds semantic indexes stored in `.doc-index/`:
