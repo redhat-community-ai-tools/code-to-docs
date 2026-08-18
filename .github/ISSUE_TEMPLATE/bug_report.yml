@@ -1,0 +1,85 @@
+name: Bug Report
+description: Report a problem with code-to-docs
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please fill in the details
+        below so we can reproduce the issue.
+
+  - type: dropdown
+    id: command
+    attributes:
+      label: Trigger command
+      description: Which command were you using?
+      options:
+        - "[review-docs]"
+        - "[update-docs]"
+        - "[review-feature]"
+    validations:
+      required: true
+
+  - type: input
+    id: model-backend
+    attributes:
+      label: Model backend
+      description: "e.g. vLLM on OpenShift AI, Gemini, OpenAI, Ollama"
+      placeholder: "vLLM on OpenShift AI"
+    validations:
+      required: true
+
+  - type: input
+    id: model-name
+    attributes:
+      label: Model name
+      description: "The MODEL_NAME value you configured"
+      placeholder: "meta-llama/Llama-3.1-8B-Instruct"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: docs-format
+    attributes:
+      label: Documentation format
+      description: What format are your doc files?
+      options:
+        - Markdown (.md)
+        - reStructuredText (.rst)
+        - AsciiDoc (.adoc)
+        - Mixed
+    validations:
+      required: true
+
+  - type: dropdown
+    id: repo-setup
+    attributes:
+      label: Repository setup
+      description: How is your docs repo configured?
+      options:
+        - Same repo (docs-subfolder set)
+        - Separate docs repo (docs-repo-url points elsewhere)
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the bug. Include the PR link if possible.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Paste any relevant output from the GitHub Actions run.
+      render: shell
