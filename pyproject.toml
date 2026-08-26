@@ -1,6 +1,6 @@
 [project]
 name = "code-to-docs"
-version = "0.1.0"
+version = "1.1.2"
 description = "GitHub Action that generates documentation suggestions from code changes using LLMs"
 requires-python = ">=3.12"
 license = {text = "MIT"}

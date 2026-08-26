@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-08-26
+
+### Fixed
+
+- Normalize `DOCS_SUBFOLDER` trailing slash and resolve paths with
+  `os.path.normpath` before comparing against the current working directory
+- Clean up stale semantic indexes when their documentation files are deleted,
+  fetching the base branch ref for accurate change detection
+- Build git `ls-tree` / `cat-file` / `show` pathspecs relative to the current
+  working directory using `git rev-parse --show-prefix`
+
 ## [0.1.0] - 2026-08-16
 
 Initial tagged release. The action has been in use since September 2025;

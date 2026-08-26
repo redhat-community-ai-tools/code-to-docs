@@ -150,7 +150,7 @@ jobs:
             "AUTHORIZATION: basic $(echo -n "x-access-token:${GH_TOKEN}" | base64 -w 0)"
 
       - name: Documentation Assistant
-        uses: redhat-community-ai-tools/code-to-docs@v0
+        uses: redhat-community-ai-tools/code-to-docs@v1
         with:
           model-api-base: ${{ secrets.MODEL_API_BASE }}
           model-api-key: ${{ secrets.MODEL_API_KEY }}
@@ -200,8 +200,8 @@ These are set as `with:` parameters in the workflow step (not as secrets):
 
 ### Versioning
 
-- `@v0` receives all backward-compatible updates (recommended)
-- `@v0.1.0` pins to an exact release
+- `@v1` receives all backward-compatible updates (recommended)
+- `@v1.1.2` pins to an exact release
 - `@main` tracks unreleased changes and is not stable
 
 ### Supported Model Backends
