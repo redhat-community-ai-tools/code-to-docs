@@ -191,6 +191,66 @@ class TestParseUpdateInstructions:
         assert "config.md: another example" in global_inst
         assert file_inst == {}
 
+    def test_backtick_fence_not_closed_by_tilde(self):
+        """Regression test for issue #63: a backtick fence must only be closed
+        by a backtick delimiter, not a tilde delimiter."""
+        comment = (
+            "[update-docs] here is an example:\n"
+            "```\n"
+            "pools.rst: inside backtick fence\n"
+            "~~~\n"                           # tilde should NOT close a backtick fence
+            "config.rst: still inside fence\n"
+            "```\n"                           # this backtick DOES close it
+            "health.md: now outside fence"    # this should be per-file
+        )
+        global_inst, file_inst = parse_update_instructions(comment)
+        # Lines inside the backtick fence must stay in global instructions
+        assert "pools.rst: inside backtick fence" in global_inst
+        assert "pools.rst" not in file_inst
+        assert "config.rst: still inside fence" in global_inst
+        assert "config.rst" not in file_inst
+        # Line after the fence is properly classified as per-file
+        assert "health.md" in file_inst
+        assert file_inst["health.md"] == "now outside fence"
+
+    def test_tilde_fence_not_closed_by_backtick(self):
+        """Regression test for issue #63: a tilde fence must only be closed
+        by a tilde delimiter, not a backtick delimiter."""
+        comment = (
+            "[update-docs] here is an example:\n"
+            "~~~\n"
+            "pools.rst: inside tilde fence\n"
+            "```\n"                           # backtick should NOT close a tilde fence
+            "config.rst: still inside fence\n"
+            "~~~\n"                           # this tilde DOES close it
+            "health.md: now outside fence"    # this should be per-file
+        )
+        global_inst, file_inst = parse_update_instructions(comment)
+        # Lines inside the tilde fence must stay in global instructions
+        assert "pools.rst: inside tilde fence" in global_inst
+        assert "pools.rst" not in file_inst
+        assert "config.rst: still inside fence" in global_inst
+        assert "config.rst" not in file_inst
+        # Line after the fence is properly classified as per-file
+        assert "health.md" in file_inst
+        assert file_inst["health.md"] == "now outside fence"
+
+    def test_nested_different_delimiter_inside_backtick_fence(self):
+        """A tilde sequence inside a backtick fence is treated as content."""
+        comment = (
+            "[update-docs] note:\n"
+            "```\n"
+            "~~~\n"                           # this is just content inside ``` fence
+            "pools.rst: nested content\n"
+            "~~~\n"                           # still content
+            "```\n"                           # THIS closes the ``` fence
+            "api.rst: after fence"
+        )
+        global_inst, file_inst = parse_update_instructions(comment)
+        assert "pools.rst: nested content" in global_inst
+        assert "pools.rst" not in file_inst
+        assert "api.rst" in file_inst
+
 
 # ── _resolve_file_instructions ───────────────────────────────────────────────
 
