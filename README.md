@@ -75,6 +75,11 @@ With this config, generated PRs will be titled `:book: docs: update documentatio
 
 This file is optional — if missing, the tool uses default titles with no prefix.
 
+## Security
+
+See [SECURITY.md](SECURITY.md) for the threat model, including untrusted
+inputs, fork PR considerations, and credential handling.
+
 ## How It Works
 
 1. **Triggered by PR Comments** - When someone comments `[review-docs]`, `[update-docs]`, or `[review-feature]` on a Pull Request
