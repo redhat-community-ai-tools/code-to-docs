@@ -58,11 +58,10 @@ _REMOVAL_THRESHOLD = 0.20
 # because a small denominator makes the ratio unreliable.
 _MIN_LINES_FOR_CHECK = 30
 
-# Verdict extraction: find the first whole-word REJECTED or APPROVED token.
-# REJECTED is listed first so it wins if both somehow start at the same position.
-_VERDICT_PATTERN = re.compile(r"\b(REJECTED|APPROVED)\b")
-
-_MAX_VERIFICATION_ATTEMPTS = 1
+# Verdict extraction: search for REJECTED first so it always takes
+# precedence when the response contains both tokens.
+_REJECTED_PATTERN = re.compile(r"\bREJECTED\b")
+_APPROVED_PATTERN = re.compile(r"\bAPPROVED\b")
 
 
 class GenerationResult(NamedTuple):
@@ -343,23 +342,24 @@ def verify_update_with_llm(code_diff, file_path, original, updated, user_instruc
         )
         return VerificationResult(ok=True, issues="", available=False)
 
-    match = _VERDICT_PATTERN.search(verdict)
-    if not match:
-        print(f"Warning: Verification returned ambiguous response for {file_path}: {verdict[:200]}")
+    # Search for REJECTED first so it takes precedence when both tokens appear.
+    rejected_match = _REJECTED_PATTERN.search(verdict)
+    if rejected_match:
+        reason = verdict[rejected_match.end() :].lstrip(": ").strip()
         return VerificationResult(
             ok=False,
-            issues=f"Ambiguous verification response (no APPROVED/REJECTED token found): {verdict[:200]}",
+            issues=reason or "Update rejected by verification (no details provided)",
             available=True,
         )
 
-    token = match.group(1)
-    if token == "APPROVED":
+    approved_match = _APPROVED_PATTERN.search(verdict)
+    if approved_match:
         return VerificationResult(ok=True, issues="", available=True)
 
-    reason = verdict[match.end() :].lstrip(": ").strip()
+    print(f"Warning: Verification returned ambiguous response for {file_path}: {verdict[:200]}")
     return VerificationResult(
         ok=False,
-        issues=reason or "Update rejected by verification (no details provided)",
+        issues=f"Ambiguous verification response (no APPROVED/REJECTED token found): {verdict[:200]}",
         available=True,
     )
 

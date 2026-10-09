@@ -434,10 +434,11 @@ class TestVerifyUpdateWithLlm:
             patch("generation.get_model_name", return_value="test-model"),
         ):
             result = verify_update_with_llm(self.DIFF, "docs/guide.md", self.ORIGINAL, self.UPDATED)
-        # APPROVED appears first in the text, so regex finds it first.
-        # But this test documents the behavior: whichever token appears first wins.
-        # In this case APPROVED appears at position 17 before REJECTED at 55.
+        # REJECTED is searched first and takes precedence even when APPROVED
+        # appears earlier in the text.
         assert result.available is True
+        assert result.ok is False
+        assert "missing context" in result.issues
 
     def test_no_verdict_token_is_ambiguous(self):
         mock_client = _mock_ai_response("I'm not sure about this update.")
