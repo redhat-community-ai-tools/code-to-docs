@@ -5,6 +5,7 @@ before the generated content is committed or pushed.
 """
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -12,11 +13,20 @@ import tempfile
 
 from security_utils import sanitize_output
 
+# Sensitive env vars to strip from the build subprocess environment.
+_SENSITIVE_VARS = ("GH_TOKEN", "MODEL_API_KEY", "JIRA_API_TOKEN", "GOOGLE_SA_KEY")
+
 
 def run_docs_build(build_command, docs_root, timeout=120):
     """Run a docs build command in a temp copy of the docs tree.
 
-    Returns (success, error_output).
+    Args:
+        build_command: Shell command to run. Empty string is a no-op.
+        docs_root: Path to the documentation directory to copy.
+        timeout: Hard timeout in seconds (default 120).
+
+    Returns:
+        Tuple of (success, error_output).
     """
     if not build_command:
         return True, ""
@@ -24,6 +34,11 @@ def run_docs_build(build_command, docs_root, timeout=120):
     tmpdir = tempfile.mkdtemp(prefix="code-to-docs-build-")
     try:
         shutil.copytree(docs_root, tmpdir, dirs_exist_ok=True)
+        # build_command is set by the repo owner via action.yml workflow YAML
+        # (trusted input). shell=True is required to support compound commands
+        # like "mkdocs build && vale docs/". The sanitized environment strips
+        # secrets to limit blast radius.
+        env = {k: v for k, v in os.environ.items() if k not in _SENSITIVE_VARS}
         result = subprocess.run(
             build_command,
             shell=True,
@@ -31,10 +46,12 @@ def run_docs_build(build_command, docs_root, timeout=120):
             capture_output=True,
             text=True,
             timeout=timeout,
+            env=env,
+            start_new_session=True,
         )
         if result.returncode != 0:
             error = (result.stderr or result.stdout or "Build failed").strip()
-            return False, sanitize_output(error[:2000])
+            return False, sanitize_output(error)[:2000]
         return True, ""
     except subprocess.TimeoutExpired:
         return False, f"Build timed out after {timeout}s"
@@ -45,7 +62,7 @@ def run_docs_build(build_command, docs_root, timeout=120):
 
 
 _FENCE_PATTERN = re.compile(
-    r"^```(\w+)\s*\n(.*?)^```\s*$",
+    r"^(?:```|~~~)(\w+)\s*\n(.*?)^(?:```|~~~)\s*$",
     re.MULTILINE | re.DOTALL,
 )
 
@@ -53,8 +70,13 @@ _FENCE_PATTERN = re.compile(
 def check_code_samples(content, file_path=""):
     """Syntax-check fenced code blocks in generated documentation.
 
-    Returns a list of (line_number, language, error) tuples.
-    Does not execute any code.
+    Args:
+        content: Markdown/RST content string to scan.
+        file_path: Source file path for error messages.
+
+    Returns:
+        List of (line_number, language, error) tuples.
+        Does not execute any code.
     """
     issues = []
     for match in _FENCE_PATTERN.finditer(content):

@@ -57,3 +57,21 @@ class TestCheckCodeSamples:
         content = "Line 1\nLine 2\nLine 3\n\n```python\ndef broken(\n```\n"
         issues = check_code_samples(content)
         assert issues[0][0] == 5
+
+    def test_tilde_fence_valid_python(self):
+        content = '# Guide\n\n~~~python\nprint("hello")\n~~~\n'
+        assert check_code_samples(content) == []
+
+    def test_tilde_fence_invalid_python(self):
+        content = "# Guide\n\n~~~python\ndef broken(\n~~~\n"
+        issues = check_code_samples(content)
+        assert len(issues) == 1
+        assert issues[0][1] == "python"
+
+    def test_valid_yaml(self):
+        content = "# Config\n\n```yaml\nkey: value\nlist:\n  - item\n```\n"
+        assert check_code_samples(content) == []
+
+    def test_empty_code_block(self):
+        content = "# Guide\n\n```python\n```\n"
+        assert check_code_samples(content) == []
