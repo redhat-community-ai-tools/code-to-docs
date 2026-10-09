@@ -35,6 +35,7 @@ from config import (
     get_pr_title_prefix,
     load_style_config_from_branch,
 )
+from detect import exit_with_severity, extract_changed_doc_paths, run_detect_only
 from discovery import (
     ask_ai_for_relevant_files,
     find_relevant_files_optimized,
@@ -258,20 +259,26 @@ def main():
         print(f"Index build complete: {result['status']}")
         return
 
-    # Handle detect-only mode (runs on pull_request events, not comments)
+    # Handle detect-only mode (runs on pull_request events, not comments).
+    # Must run before the comment-driven flow below because detect-only is
+    # triggered by pull_request events where COMMENT_BODY is absent.
     mode = os.environ.get("MODE", "comment")
     if mode == "detect-only":
-        from detect import exit_with_severity, extract_changed_doc_paths, run_detect_only
-
         print("Mode: detect-only")
-        if not setup_docs_environment():
-            print("Failed to set up docs environment")
-            return
         diff = get_diff()
         if not diff:
             print("No diff found.")
             return
         changed_docs = extract_changed_doc_paths(diff)
+        # Normalize changed_docs paths: strip DOCS_SUBFOLDER prefix so they
+        # match the docs-root-relative paths returned by file discovery.
+        docs_subfolder = os.environ.get("DOCS_SUBFOLDER", "")
+        if docs_subfolder:
+            prefix = docs_subfolder.rstrip("/") + "/"
+            changed_docs = {p[len(prefix) :] if p.startswith(prefix) else p for p in changed_docs}
+        if not setup_docs_environment():
+            print("Failed to set up docs environment")
+            return
         relevant_files = find_relevant_files_optimized(diff)
         if relevant_files is None:
             file_previews = get_file_content_or_summaries()

@@ -1,4 +1,9 @@
-"""Detect-only mode: identify docs affected by a diff without generating anything."""
+"""
+Detect-only mode for docs drift checking.
+
+Identifies documentation files affected by a code diff without generating
+any content. Used as a lightweight status check on pull_request events.
+"""
 
 import re
 import sys
@@ -34,6 +39,8 @@ def run_detect_only(diff, relevant_files, changed_docs):
             "Comment [review-docs] on the PR to review suggested changes, "
             "or [update-docs] to generate updates directly."
         )
+    elif not affected_set:
+        lines.append("No documentation files were identified as affected by this change.")
     else:
         lines.append("All affected documentation files are already updated in this PR.")
 

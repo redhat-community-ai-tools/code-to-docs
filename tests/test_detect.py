@@ -1,6 +1,8 @@
-"""Tests for detect-only mode."""
+"""Tests for detect.py — detect-only mode for docs drift checking."""
 
-from detect import extract_changed_doc_paths, run_detect_only
+import pytest
+
+from detect import exit_with_severity, extract_changed_doc_paths, run_detect_only
 
 
 class TestExtractChangedDocPaths:
@@ -50,3 +52,23 @@ class TestRunDetectOnly:
             changed_docs=set(),
         )
         assert untouched == set()
+        assert any("No documentation files were identified" in line for line in lines)
+
+
+class TestExitWithSeverity:
+    def test_error_severity_exits(self):
+        with pytest.raises(SystemExit) as exc_info:
+            exit_with_severity({"docs/guide.md"}, "error")
+        assert exc_info.value.code == 1
+
+    def test_warn_severity_does_not_exit(self):
+        # Should return without raising
+        exit_with_severity({"docs/guide.md"}, "warn")
+
+    def test_empty_untouched_does_not_exit(self):
+        # Should return without raising regardless of severity
+        exit_with_severity(set(), "error")
+
+    def test_none_severity_defaults_to_warn(self):
+        # None severity should default to warn (no exit)
+        exit_with_severity({"docs/guide.md"}, None)
