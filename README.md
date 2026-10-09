@@ -75,6 +75,38 @@ With this config, generated PRs will be titled `:book: docs: update documentatio
 
 This file is optional — if missing, the tool uses default titles with no prefix.
 
+## Doc-to-Code Linkage
+
+You can declare which source files a doc covers. Declared docs are selected deterministically with no LLM call, making selection free and reliable for the files you care about most.
+
+**Markdown** (YAML front-matter):
+```markdown
+---
+code-to-docs:
+  covers:
+    - src/cli/flags.py
+    - src/config.py
+---
+# CLI Reference
+```
+
+**reStructuredText** (directive comment):
+```rst
+.. code-to-docs:: covers: src/cli/flags.py, src/config.py
+
+CLI Reference
+=============
+```
+
+**AsciiDoc** (comment):
+```adoc
+// code-to-docs: covers: src/cli/flags.py, src/config.py
+
+= CLI Reference
+```
+
+Linkage is additive. The LLM selection pass still runs for docs without declarations. Adopt it incrementally, starting with your most important reference pages.
+
 ## How It Works
 
 1. **Triggered by PR Comments** - When someone comments `[review-docs]`, `[update-docs]`, or `[review-feature]` on a Pull Request
