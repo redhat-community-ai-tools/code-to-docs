@@ -76,6 +76,7 @@ Set by the GitHub Action via `action.yml`:
 | `JIRA_USERNAME` | No | Jira username/email (for `[review-feature]`) |
 | `JIRA_API_TOKEN` | No | Jira API token (for `[review-feature]`) |
 | `GOOGLE_SA_KEY` | No | Google service account JSON key for fetching Google Docs |
+| `INDEX_STORAGE` | No | Index persistence backend: `cache` (default), `pr`, or `none` |
 | `MAX_CONTEXT_CHARS` | No | Max chars for LLM prompt content (default: 400000) |
 
 ## Command flows
@@ -106,11 +107,12 @@ Requires `JIRA_URL`, `JIRA_USERNAME`, and `JIRA_API_TOKEN` secrets. Optionally u
 
 ## Index system (in `doc_index.py`)
 
-Semantic indexes speed up doc file discovery by caching LLM-generated summaries of documentation folders. Key functions:
+Semantic indexes speed up doc file discovery by caching LLM-generated summaries of documentation folders. Persistence is controlled by `INDEX_STORAGE` (via `config.get_index_storage()`): `cache` (default, saves to Actions cache), `pr` (opens a PR to main), or `none`. Key functions:
 
-- `fetch_indexes_from_main()` — fetches cached indexes from the base branch
+- `fetch_indexes_from_main()` — restores indexes from the Actions cache (when `INDEX_STORAGE=cache`) or fetches from the base branch
+- `save_indexes_to_cache()` / `restore_indexes_from_cache()` — cache backend: copies indexes to/from a well-known path for Actions cache
 - `folder_needs_reindex()` — compares SHA256 doc hashes against `origin/main` (via `get_folder_doc_hashes_from_ref`) to detect changes, with fallback to disk hashes
 - `build_all_indexes()` / `update_indexes_if_needed()` — regenerate via LLM only for changed folders
-- `commit_indexes_to_repo()` — pushes indexes to a persistent `code-to-docs/update-indexes` branch and creates/updates a PR
+- `commit_indexes_to_repo()` — dispatches to the configured storage backend (cache, PR, or none)
 
 Indexes are stored in `.doc-index/` within the docs root. The manifest (`manifest.json`) tracks per-folder doc hashes to avoid unnecessary LLM regeneration.

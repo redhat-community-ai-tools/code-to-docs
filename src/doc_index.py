@@ -32,6 +32,7 @@ _manifest_lock = threading.Lock()
 from config import (
     check_context_error,
     get_client,
+    get_index_storage,
     get_max_context_chars,
     get_model_name,
     get_pr_title_prefix,
@@ -850,9 +851,9 @@ def commit_indexes_to_repo(content_type="indexes"):
     """
     Persist the .doc-index folder using the configured storage backend.
 
-    The INDEX_STORAGE env var controls the backend:
-    - "pr" (default): push to a branch and open a PR
-    - "cache": save to a well-known path for Actions cache
+    The INDEX_STORAGE env var controls the backend (via config.get_index_storage()):
+    - "cache" (default): save to a well-known path for Actions cache
+    - "pr": push to a branch and open a PR
     - "none": skip persistence
 
     Args:
@@ -861,7 +862,7 @@ def commit_indexes_to_repo(content_type="indexes"):
     Returns:
         bool: True if content was persisted, False otherwise
     """
-    storage = os.environ.get("INDEX_STORAGE", "pr").lower()
+    storage = get_index_storage()
     if storage == "none":
         print(f"Index storage disabled (INDEX_STORAGE=none), skipping {content_type} persistence")
         return False
@@ -1292,7 +1293,7 @@ def fetch_indexes_from_main():
     Returns:
         bool: True if indexes/summaries were fetched, False otherwise
     """
-    if restore_indexes_from_cache():
+    if get_index_storage() == "cache" and restore_indexes_from_cache():
         return True
 
     docs_root = get_docs_root().resolve()

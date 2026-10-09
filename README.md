@@ -197,6 +197,7 @@ These are set as `with:` parameters in the workflow step (not as secrets):
 | Input | Description |
 |-------|-------------|
 | `style-config-path` | _(Optional)_ Path to a Markdown style configuration file (`.md`) containing documentation style guidelines. If not set, auto-detects `.code-to-docs/style.md`. |
+| `index-storage` | _(Optional)_ How to persist semantic indexes: `cache` (default, uses GitHub Actions cache), `pr` (opens a PR to main), or `none` (no persistence). See [Performance Optimization](#performance-optimization). |
 
 ### Supported Model Backends
 
@@ -268,4 +269,12 @@ The action builds semantic indexes stored in `.doc-index/`:
 
 - **Folder Indexes** — AI-generated summaries of each documentation folder, including per-file descriptions. The LLM selects relevant files directly from these descriptions without loading the actual file content, reducing API calls and runtime.
 
-Indexes are automatically submitted via a PR to your main branch and shared across all PRs once merged, reducing runtime from ~20 minutes to ~4 minutes on large projects.
+Index persistence is controlled by the `index-storage` input (default: `cache`):
+
+| Mode | Behavior |
+|------|----------|
+| `cache` | Saves indexes to the GitHub Actions cache. No PRs created. Indexes are shared across workflow runs automatically. |
+| `pr` | Pushes indexes to a `code-to-docs/update-indexes` branch and opens a PR to main. Indexes are shared once the PR is merged. |
+| `none` | Indexes are rebuilt each run. No persistence. |
+
+Using cached indexes reduces runtime from ~20 minutes to ~4 minutes on large projects.

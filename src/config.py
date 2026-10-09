@@ -259,6 +259,25 @@ def get_pr_title_prefix():
     return f"{prefix} " if prefix else ""
 
 
+_VALID_INDEX_STORAGE = {"cache", "pr", "none"}
+
+
+def get_index_storage():
+    """Get the configured index storage backend.
+
+    Reads INDEX_STORAGE env var. Valid values: "cache" (default), "pr", "none".
+    Warns and falls back to "cache" for unrecognized values.
+    """
+    raw = os.environ.get("INDEX_STORAGE", "cache").lower()
+    if raw not in _VALID_INDEX_STORAGE:
+        print(
+            f"Warning: Unrecognized INDEX_STORAGE='{raw}', "
+            f"expected one of {sorted(_VALID_INDEX_STORAGE)}. Falling back to 'cache'."
+        )
+        return "cache"
+    return raw
+
+
 def check_context_error(e):
     """
     If e is a context-window error, print actionable guidance.
