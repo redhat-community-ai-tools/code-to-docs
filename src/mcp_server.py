@@ -7,16 +7,14 @@ Provides three tools for agents and editors:
 """
 
 import json
-import sys
 from pathlib import Path
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from doc_index import get_docs_in_folder, get_docs_root, load_manifest
+from doc_index import get_docs_in_folder, get_docs_root, load_all_indexes, load_index
+from security_utils import sanitize_output
 
 app = Server("code-to-docs")
 
@@ -84,11 +82,10 @@ async def call_tool(name, arguments):
 async def _find_docs_for_code(paths):
     """Find docs whose folder index mentions the given source paths."""
     docs_root = get_docs_root().resolve()
-    manifest = load_manifest(docs_root)
+    indexes = load_all_indexes(docs_root)
     results = []
 
-    for folder, info in manifest.get("folders", {}).items():
-        index_text = info.get("index", "")
+    for folder, index_text in indexes.items():
         for path in paths:
             basename = Path(path).stem
             if basename in index_text or path in index_text:
@@ -108,9 +105,7 @@ async def _find_docs_for_code(paths):
 async def _get_doc_index(folder):
     """Return the index summary for a folder."""
     docs_root = get_docs_root().resolve()
-    manifest = load_manifest(docs_root)
-    folder_info = manifest.get("folders", {}).get(folder, {})
-    index_text = folder_info.get("index", "")
+    index_text = load_index(folder, docs_root)
     if not index_text:
         return [TextContent(type="text", text=f"No index found for folder: {folder}")]
     return [TextContent(type="text", text=index_text)]
@@ -119,7 +114,9 @@ async def _get_doc_index(folder):
 async def _check_doc_drift(doc_path):
     """Assess staleness of a single doc file."""
     docs_root = get_docs_root().resolve()
-    full_path = docs_root / doc_path
+    full_path = (docs_root / doc_path).resolve()
+    if not full_path.is_relative_to(docs_root):
+        return [TextContent(type="text", text=f"Invalid path: {doc_path}")]
     if not full_path.exists():
         return [TextContent(type="text", text=f"File not found: {doc_path}")]
     try:
@@ -141,7 +138,9 @@ async def _check_doc_drift(doc_path):
             )
         ]
     except Exception as e:
-        return [TextContent(type="text", text=f"Error reading {doc_path}: {e}")]
+        return [
+            TextContent(type="text", text=f"Error reading {doc_path}: {sanitize_output(str(e))}")
+        ]
 
 
 async def main():
