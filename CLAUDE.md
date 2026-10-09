@@ -20,6 +20,7 @@ AI-powered GitHub Action that analyzes code changes and generates documentation 
 | `comments.py` | PR comment building, parsing previous reviews, posting |
 | `github_ops.py` | Git operations, docs environment setup, pushing/creating PRs |
 | `jira_integration.py` | Jira/Confluence/Google Docs integration for `[review-feature]` |
+| `linkage.py` | Doc-to-code linkage — deterministic file selection from front-matter declarations |
 | `security_utils.py` | Credential sanitization, safe subprocess execution, path validation |
 | `utils.py` | Retry logic, backoff calculations |
 
