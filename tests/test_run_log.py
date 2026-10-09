@@ -46,3 +46,13 @@ class TestRunLog:
         entry = json.loads((tmp_path / "test.jsonl").read_text().strip())
         assert entry["prompt_tokens"] is None
         assert entry["completion_tokens"] is None
+
+    def test_restrictive_permissions_with_prompts(self, tmp_path):
+        import os
+        import stat
+
+        log_path = tmp_path / "test.jsonl"
+        log = RunLog(path=str(log_path), include_prompts=True)
+        log.record("generation", "f.md", "prompt", "response", None, 100, "ok")
+        mode = stat.S_IMODE(os.stat(log_path).st_mode)
+        assert mode == 0o600

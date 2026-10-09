@@ -2,6 +2,8 @@
 
 import threading
 
+_TOKENS_PER_MILLION = 1_000_000
+
 
 class UsageTracker:
     """Thread-safe accumulator for LLM API token usage.
@@ -17,7 +19,12 @@ class UsageTracker:
         self._cost_output = cost_per_1m_output
 
     def record(self, stage, response):
-        """Extract usage from an OpenAI-compatible response and store it."""
+        """Extract usage from an OpenAI-compatible response and store it.
+
+        Args:
+            stage: Label for the pipeline stage (e.g. "generation", "format-fix").
+            response: An OpenAI-compatible chat completion response object.
+        """
         usage = getattr(response, "usage", None)
         prompt_tokens = None
         completion_tokens = None
@@ -56,7 +63,12 @@ class UsageTracker:
         return stages
 
     def format_summary(self):
-        """Return a Markdown <details> block with per-stage token breakdown."""
+        """Return a Markdown ``<details>`` block with per-stage token breakdown.
+
+        Returns:
+            A Markdown string containing a collapsible token usage table,
+            or an empty string when no records have been captured.
+        """
         if not self._records:
             return ""
 
@@ -64,6 +76,7 @@ class UsageTracker:
         total_prompt = 0
         total_completion = 0
         all_reported = True
+        reported_calls = 0
 
         lines = []
         lines.append("| Stage | Calls | Input tokens | Output tokens |")
@@ -75,18 +88,26 @@ class UsageTracker:
                 )
                 total_prompt += data["prompt"]
                 total_completion += data["completion"]
+                reported_calls += data["calls"]
             else:
                 lines.append(f"| {stage} | {data['calls']} | not reported | not reported |")
                 all_reported = False
 
-        lines.append(
-            f"| **Total** | **{len(self._records)}** "
-            f"| **{total_prompt:,}** | **{total_completion:,}** |"
-        )
+        if all_reported:
+            lines.append(
+                f"| **Total** | **{len(self._records)}** "
+                f"| **{total_prompt:,}** | **{total_completion:,}** |"
+            )
+        else:
+            lines.append(
+                f"| **Total** | **{len(self._records)}** "
+                f"| **{total_prompt:,}**\\* | **{total_completion:,}**\\* |"
+            )
+            lines.append("\n\\*Totals reflect only stages that reported usage data.")
 
-        if self._cost_input and self._cost_output and all_reported:
-            cost = (total_prompt / 1_000_000) * self._cost_input + (
-                total_completion / 1_000_000
+        if self._cost_input is not None and self._cost_output is not None and all_reported:
+            cost = (total_prompt / _TOKENS_PER_MILLION) * self._cost_input + (
+                total_completion / _TOKENS_PER_MILLION
             ) * self._cost_output
             lines.append(f"\nEstimated cost: ${cost:.4f}")
 

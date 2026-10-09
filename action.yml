@@ -82,7 +82,7 @@ inputs:
     required: false
     default: ''
   debug-artifacts:
-    description: 'When true, include full prompt and response text in the run log artifact. Default false.'
+    description: 'When true, include full prompt and response text in the run log artifact. WARNING: prompts contain code diffs that may include sensitive content. Default false.'
     required: false
     default: 'false'
 

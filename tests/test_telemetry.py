@@ -47,6 +47,16 @@ class TestUsageTracker:
         assert "$" in summary
         assert "4.5000" in summary  # 3.0 + 1.5
 
+    def test_format_with_zero_cost(self):
+        tracker = UsageTracker(cost_per_1m_input=0.0, cost_per_1m_output=0.0)
+        resp = MagicMock()
+        resp.usage.prompt_tokens = 500
+        resp.usage.completion_tokens = 100
+        tracker.record("generation", resp)
+        summary = tracker.format_summary()
+        assert "$" in summary
+        assert "0.0000" in summary
+
     def test_format_without_cost(self):
         tracker = UsageTracker()
         resp = MagicMock()
@@ -67,6 +77,18 @@ class TestUsageTracker:
         tracker.record("generation", resp)
         summary = tracker.format_summary()
         assert "$" not in summary
+
+    def test_mixed_reporting_shows_footnote(self):
+        tracker = UsageTracker()
+        resp_with = MagicMock()
+        resp_with.usage.prompt_tokens = 100
+        resp_with.usage.completion_tokens = 50
+        tracker.record("generation", resp_with)
+        resp_without = MagicMock(spec=[])
+        tracker.record("other", resp_without)
+        summary = tracker.format_summary()
+        assert "\\*" in summary
+        assert "only stages that reported" in summary
 
     def test_details_block_structure(self):
         tracker = UsageTracker()

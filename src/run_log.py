@@ -6,6 +6,7 @@ debug-artifacts flag.
 """
 
 import json
+import os
 import threading
 import time
 from pathlib import Path
@@ -14,7 +15,11 @@ from security_utils import sanitize_output
 
 
 class RunLog:
-    """Append-only JSONL log of LLM calls."""
+    """Per-run JSONL log of LLM calls.
+
+    Each instantiation starts a fresh log file (any previous file at the
+    same path is removed). Records are appended throughout the run.
+    """
 
     def __init__(self, path="/tmp/code-to-docs-run.jsonl", include_prompts=False):
         self._path = Path(path)
@@ -33,7 +38,17 @@ class RunLog:
         return self._path.exists() and self._path.stat().st_size > 0
 
     def record(self, stage, file_path, prompt, response_text, usage_obj, latency_ms, outcome):
-        """Write a single log record."""
+        """Write a single log record.
+
+        Args:
+            stage: Pipeline stage label (e.g. "generation", "format-fix").
+            file_path: Documentation file being processed, or empty string.
+            prompt: Full prompt text sent to the LLM.
+            response_text: Response text from the LLM.
+            usage_obj: OpenAI-compatible usage object (may be ``None``).
+            latency_ms: Wall-clock latency of the API call in milliseconds.
+            outcome: Free-text outcome label (e.g. "ok", "error: ...").
+        """
         entry = {
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "stage": stage,
@@ -54,5 +69,9 @@ class RunLog:
 
         line = json.dumps(entry, ensure_ascii=False)
         with self._lock:
-            with open(self._path, "a", encoding="utf-8") as f:
-                f.write(line + "\n")
+            mode = 0o600 if self._include_prompts else 0o644
+            fd = os.open(str(self._path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, mode)
+            try:
+                os.write(fd, (line + "\n").encode("utf-8"))
+            finally:
+                os.close(fd)

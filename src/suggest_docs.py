@@ -247,11 +247,23 @@ def main():
     print(f"Context budget: {budget:,} chars (from {source})")
 
     # Initialize token usage tracking
-    cost_input = os.environ.get("COST_PER_1M_INPUT", "")
-    cost_output = os.environ.get("COST_PER_1M_OUTPUT", "")
+    cost_input_val = None
+    cost_output_val = None
+    raw_cost_input = os.environ.get("COST_PER_1M_INPUT", "")
+    raw_cost_output = os.environ.get("COST_PER_1M_OUTPUT", "")
+    if raw_cost_input:
+        try:
+            cost_input_val = float(raw_cost_input)
+        except ValueError:
+            print(f"Warning: Invalid COST_PER_1M_INPUT='{raw_cost_input}', ignoring")
+    if raw_cost_output:
+        try:
+            cost_output_val = float(raw_cost_output)
+        except ValueError:
+            print(f"Warning: Invalid COST_PER_1M_OUTPUT='{raw_cost_output}', ignoring")
     usage_tracker = UsageTracker(
-        cost_per_1m_input=float(cost_input) if cost_input else None,
-        cost_per_1m_output=float(cost_output) if cost_output else None,
+        cost_per_1m_input=cost_input_val,
+        cost_per_1m_output=cost_output_val,
     )
 
     # Initialize structured run log
@@ -433,6 +445,16 @@ def main():
             accepted = len(previous_review["accepted_files"])
             if suggested > 0:
                 print(f"Acceptance rate: suggested={suggested} accepted={accepted}")
+                github_output = os.environ.get("GITHUB_OUTPUT")
+                if github_output:
+                    try:
+                        with open(github_output, "a", encoding="utf-8") as f:
+                            f.write(f"acceptance-rate={accepted}/{suggested}\n")
+                    except OSError as e:
+                        print(
+                            f"Warning: Could not write acceptance-rate to GITHUB_OUTPUT: "
+                            f"{sanitize_output(str(e))}"
+                        )
 
             if previous_review["review_commit"] and commit_info:
                 if previous_review["review_commit"] != commit_info["short_hash"]:
@@ -564,6 +586,7 @@ def main():
             style_guidelines=style_guidelines,
             pr_description=pr_description,
             usage_tracker=usage_tracker,
+            run_log=run_log,
         )
 
         for file_path, _current, updated in files_with_content:
@@ -589,6 +612,7 @@ def main():
                 style_guidelines=style_guidelines,
                 pr_description=pr_description,
                 usage_tracker=usage_tracker,
+                run_log=run_log,
             )
 
             if updated.strip() == "NO_UPDATE_NEEDED":
