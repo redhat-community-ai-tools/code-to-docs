@@ -258,8 +258,12 @@ def main():
         print(f"Index build complete: {result['status']}")
         return
 
-    # Handle audit mode (scheduled full-repo drift check)
+    # Handle execution mode
     mode = os.environ.get("MODE", "comment")
+    if mode not in ("comment", "audit"):
+        print(f"Warning: unrecognized MODE '{mode}', falling back to 'comment'")
+        mode = "comment"
+
     if mode == "audit":
         from audit import format_audit_report, post_audit_issue, run_audit
 
@@ -267,7 +271,11 @@ def main():
         if not setup_docs_environment():
             print("Failed to set up docs environment")
             return
-        budget = int(os.environ.get("AUDIT_BUDGET", "20"))
+        try:
+            budget = int(os.environ.get("AUDIT_BUDGET", "20"))
+        except ValueError:
+            print("Warning: AUDIT_BUDGET is not a valid integer, defaulting to 20")
+            budget = 20
         findings = run_audit(max_files=budget)
         report = format_audit_report(findings)
         print(report)

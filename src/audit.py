@@ -1,14 +1,30 @@
-"""Scheduled full-repo documentation drift audit.
+"""
+Scheduled full-repo documentation drift audit.
 
-Walks the docs tree using folder indexes, asks the LLM to assess each
-doc's staleness, and reports findings grouped by severity.
+This module handles:
+- Walking the docs tree using folder indexes and manifests
+- Asking the LLM to assess each doc's staleness (fresh/stale/very-stale)
+- Formatting audit findings into a grouped Markdown report
+- Creating or updating a single GitHub Issue with audit results
 """
 
 import json
 import os
+import re
 
-from config import get_client, get_max_context_chars, get_model_name, truncate_content
+# Import configuration
+from config import (
+    check_context_error,
+    get_client,
+    get_max_context_chars,
+    get_model_name,
+    truncate_content,
+)
+
+# Import documentation index module
 from doc_index import get_doc_folders, get_docs_in_folder, get_docs_root, load_manifest
+
+# Import security utilities
 from security_utils import run_command_safe, sanitize_output
 
 
@@ -17,6 +33,10 @@ def run_audit(max_files=20):
 
     Returns a list of {file, severity, reason} dicts.
     """
+    if max_files < 1:
+        print("Warning: max_files must be at least 1, defaulting to 20")
+        max_files = 20
+
     docs_root = get_docs_root().resolve()
     findings = []
     files_checked = 0
@@ -88,13 +108,15 @@ Example: STALE: refers to v1 API but v2 has been released"""
         )
         text = (response.choices[0].message.content or "").strip()
 
-        for severity in ("VERY-STALE", "STALE", "FRESH"):
-            if severity in text.upper():
-                reason = text.split(":", 1)[1].strip() if ":" in text else text
-                return severity.lower(), reason
+        match = re.match(r"^(VERY-STALE|STALE|FRESH)\b", text.upper())
+        if match:
+            severity = match.group(1).lower()
+            reason = text.split(":", 1)[1].strip() if ":" in text else text
+            return severity, reason
 
         return "stale", text[:200]
     except Exception as e:
+        check_context_error(e)
         print(f"Warning: Could not assess {file_path}: {sanitize_output(str(e))}")
         return "fresh", ""
 
@@ -148,6 +170,8 @@ def post_audit_issue(findings, repo=None):
             "--color",
             "FBCA04",
             "--force",
+            "--repo",
+            repo,
         ],
         check=False,
         env={**os.environ, "GH_TOKEN": gh_token},
@@ -166,6 +190,8 @@ def post_audit_issue(findings, repo=None):
             "number",
             "--limit",
             "1",
+            "--repo",
+            repo,
         ],
         check=False,
         env={**os.environ, "GH_TOKEN": gh_token},
@@ -179,14 +205,26 @@ def post_audit_issue(findings, repo=None):
     if issues:
         issue_num = issues[0]["number"]
         run_command_safe(
-            ["gh", "issue", "edit", str(issue_num), "--body", body],
+            ["gh", "issue", "edit", str(issue_num), "--body", body, "--repo", repo],
             check=False,
             env={**os.environ, "GH_TOKEN": gh_token},
         )
         print(f"Updated existing audit issue #{issue_num}")
     else:
         result = run_command_safe(
-            ["gh", "issue", "create", "--title", title, "--body", body, "--label", label],
+            [
+                "gh",
+                "issue",
+                "create",
+                "--title",
+                title,
+                "--body",
+                body,
+                "--label",
+                label,
+                "--repo",
+                repo,
+            ],
             check=False,
             env={**os.environ, "GH_TOKEN": gh_token},
         )

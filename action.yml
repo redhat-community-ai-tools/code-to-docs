@@ -74,7 +74,7 @@ inputs:
     required: false
     default: ''
   mode:
-    description: 'Execution mode: "comment" (default), "detect-only", or "audit" (scheduled full-repo drift check)'
+    description: 'Execution mode: "comment" (default) or "audit" (scheduled full-repo drift check)'
     required: false
     default: 'comment'
   audit-budget:
