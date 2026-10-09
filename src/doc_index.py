@@ -34,6 +34,7 @@ from config import (
     get_client,
     get_max_context_chars,
     get_model_name,
+    get_pr_title_prefix,
     truncate_content,
     truncate_diff,
 )
@@ -228,6 +229,38 @@ def _get_base_branch_ref():
     return f"origin/{base_branch}"
 
 
+def _get_effective_subfolder():
+    """Get the DOCS_SUBFOLDER for git pathspecs, accounting for CWD.
+
+    When CWD is already inside the docs subfolder (after
+    setup_docs_environment), the subfolder prefix must be omitted from
+    git pathspecs because they are CWD-relative.
+
+    Uses ``git rev-parse --show-prefix`` to determine CWD's position
+    within the repo, avoiding filesystem heuristics.
+    """
+    raw = os.environ.get("DOCS_SUBFOLDER", "")
+    docs_subfolder = os.path.normpath(raw).strip("/") if raw.strip() else ""
+    if not docs_subfolder:
+        return ""
+    result = run_command_safe(["git", "rev-parse", "--show-prefix"], check=False)
+    if result.returncode == 0:
+        prefix = result.stdout.strip().rstrip("/")
+        if prefix == docs_subfolder:
+            effective = ""
+            msg = f"CWD inside DOCS_SUBFOLDER ({docs_subfolder}), omitting prefix from pathspecs"
+        else:
+            effective = docs_subfolder
+            msg = f"CWD prefix '{prefix}' != DOCS_SUBFOLDER '{docs_subfolder}', keeping prefix"
+    else:
+        effective = docs_subfolder
+        msg = f"git rev-parse --show-prefix failed (rc={result.returncode}), using DOCS_SUBFOLDER"
+    if msg != getattr(_get_effective_subfolder, "_last_msg", None):
+        print(msg)
+        _get_effective_subfolder._last_msg = msg
+    return effective
+
+
 def get_folder_doc_hashes_from_ref(folder, docs_root=None):
     """
     Get hashes of docs in a folder from the base branch git ref.
@@ -248,12 +281,12 @@ def get_folder_doc_hashes_from_ref(folder, docs_root=None):
         docs_root = get_docs_root()
 
     ref = _get_base_branch_ref()
-    docs_subfolder = os.environ.get("DOCS_SUBFOLDER", "")
+    subfolder = _get_effective_subfolder()
 
     if folder == ROOT_LEVEL_FOLDER:
-        search_path = docs_subfolder or "."
+        search_path = subfolder or "."
     else:
-        search_path = f"{docs_subfolder}/{folder}" if docs_subfolder else folder
+        search_path = f"{subfolder}/{folder}" if subfolder else folder
 
     result = run_command_safe(
         ["git", "ls-tree", "-r", "--name-only", ref, "--", search_path],
@@ -272,8 +305,8 @@ def get_folder_doc_hashes_from_ref(folder, docs_root=None):
             continue
 
         rel_to_docs = file_path
-        if docs_subfolder and file_path.startswith(docs_subfolder + "/"):
-            rel_to_docs = file_path[len(docs_subfolder) + 1 :]
+        if subfolder and file_path.startswith(subfolder + "/"):
+            rel_to_docs = file_path[len(subfolder) + 1 :]
 
         parts = Path(rel_to_docs).parent.parts
         if any(p.startswith(".") or p.startswith("_") for p in parts):
@@ -292,7 +325,7 @@ def get_folder_doc_hashes_from_ref(folder, docs_root=None):
         # translation (\r\n → \n), breaking hash consistency for CRLF files.
         try:
             content_result = subprocess.run(
-                ["git", "cat-file", "blob", f"{ref}:{file_path}"],
+                ["git", "cat-file", "blob", f"{ref}:./{file_path}"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
             )
@@ -427,12 +460,12 @@ def _get_docs_content_from_ref(folder):
     unavailable, empty list if folder has no doc files on the ref.
     """
     ref = _get_base_branch_ref()
-    docs_subfolder = os.environ.get("DOCS_SUBFOLDER", "")
+    subfolder = _get_effective_subfolder()
 
     if folder == ROOT_LEVEL_FOLDER:
-        search_path = docs_subfolder or "."
+        search_path = subfolder or "."
     else:
-        search_path = f"{docs_subfolder}/{folder}" if docs_subfolder else folder
+        search_path = f"{subfolder}/{folder}" if subfolder else folder
 
     result = run_command_safe(
         ["git", "ls-tree", "-r", "--name-only", ref, "--", search_path],
@@ -451,8 +484,8 @@ def _get_docs_content_from_ref(folder):
             continue
 
         rel_to_docs = file_path
-        if docs_subfolder and file_path.startswith(docs_subfolder + "/"):
-            rel_to_docs = file_path[len(docs_subfolder) + 1 :]
+        if subfolder and file_path.startswith(subfolder + "/"):
+            rel_to_docs = file_path[len(subfolder) + 1 :]
 
         parts = Path(rel_to_docs).parent.parts
         if any(p.startswith(".") or p.startswith("_") for p in parts):
@@ -466,7 +499,7 @@ def _get_docs_content_from_ref(folder):
                 continue
 
         content_result = run_command_safe(
-            ["git", "show", f"{ref}:{file_path}"],
+            ["git", "show", f"{ref}:./{file_path}"],
             check=False,
         )
         if content_result.returncode == 0 and content_result.stdout:
@@ -651,6 +684,74 @@ def build_index_for_folder_with_retry(folder, client=None, max_retries=3):
     return _try_build()
 
 
+def remove_index(folder, docs_root=None):
+    """
+    Remove the index file for a folder.
+
+    Args:
+        folder: Folder name
+        docs_root: Optional root path for docs. If None, uses get_docs_root()
+
+    Returns:
+        bool: True if a file was removed, False if it didn't exist
+    """
+    if docs_root is None:
+        docs_root = get_docs_root()
+
+    index_file = Path(docs_root) / INDEX_DIR / f"{folder.replace('/', '-')}.index.md"
+    if index_file.exists():
+        index_file.unlink()
+        return True
+    return False
+
+
+def _handle_empty_folder_on_ref(folder, manifest, docs_root=None):
+    """
+    Handle a folder that needs reindexing but has no docs on the ref.
+
+    Safety checks:
+    - Verifies the base branch ref actually exists (not a stale/broken ref)
+    - Cross-checks disk: if the folder still has doc files on the working tree,
+      an empty ref result is more likely an environment bug than a real deletion
+
+    Returns:
+        bool: True if the stale index was cleaned up, False if skipped
+    """
+    if docs_root is None:
+        docs_root = get_docs_root()
+
+    ref = _get_base_branch_ref()
+    ref_exists = (
+        run_command_safe(["git", "rev-parse", "--verify", ref], check=False).returncode == 0
+    )
+    if not ref_exists:
+        print(f"⚠️ Ref {ref} does not exist, skipping cleanup for {folder}")
+        return False
+
+    ref_hashes = get_folder_doc_hashes_from_ref(folder, docs_root)
+    if ref_hashes is None or ref_hashes:
+        return False
+
+    disk_docs = get_docs_in_folder(folder, docs_root)
+    if disk_docs:
+        print(
+            f"⚠️ {folder} has {len(disk_docs)} doc(s) on disk but none on {ref} "
+            f"— possible ref mismatch, skipping index removal"
+        )
+        return False
+
+    removed = remove_index(folder, docs_root)
+    manifest.setdefault("folders", {})[folder] = {
+        "built": datetime.now().isoformat(),
+        "doc_hashes": {},
+    }
+    if removed:
+        print(f"🗑️ Removed stale index for {folder} (docs deleted from ref)")
+    else:
+        print(f"📝 Updated manifest for {folder} (no docs on ref)")
+    return True
+
+
 def save_index(folder, index_content, docs_root=None):
     """
     Save index content to file.
@@ -767,8 +868,11 @@ def build_all_indexes(force=False):
                     results[folder] = "success"
                     print(f"✅ Built index for {folder}")
                 else:
-                    results[folder] = "empty"
-                    print(f"⚠️ No content for {folder}")
+                    if _handle_empty_folder_on_ref(folder, manifest):
+                        results[folder] = "removed"
+                    else:
+                        results[folder] = "empty"
+                        print(f"⚠️ No content for {folder}")
             except Exception as e:
                 results[folder] = f"error: {e}"
                 print(f"❌ Failed to build index for {folder}: {sanitize_output(str(e))}")
@@ -806,6 +910,9 @@ def update_indexes_if_needed():
                 }
                 updated_folders.append(folder)
                 print(f"✅ Updated index for {folder}")
+            else:
+                if _handle_empty_folder_on_ref(folder, manifest):
+                    updated_folders.append(folder)
 
     if updated_folders:
         save_manifest(manifest)
@@ -893,7 +1000,8 @@ def commit_indexes_to_repo(content_type="indexes"):
                     print(f"No {content_type} changes to commit (already up to date)")
                     return False
 
-                commit_msg = f"chore: Update documentation semantic {content_type}\n\nAuto-generated by code-to-docs action"
+                prefix = get_pr_title_prefix()
+                commit_msg = f"{prefix}chore: Update documentation semantic {content_type}\n\nAuto-generated by code-to-docs action"
                 run_command_safe(["git", "commit", "-m", commit_msg], check=True)
 
                 print(f"Pushing {content_type} to branch {INDEX_BRANCH}...")
@@ -934,7 +1042,7 @@ def commit_indexes_to_repo(content_type="indexes"):
                             "pr",
                             "create",
                             "--title",
-                            f"chore: Update documentation semantic {content_type}",
+                            f"{prefix}chore: Update documentation semantic {content_type}",
                             "--body",
                             pr_body,
                             "--base",

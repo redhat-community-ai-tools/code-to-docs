@@ -25,7 +25,11 @@ Note: `[update-docs]` runs post-generation validation (content preservation chec
 You can guide how the AI generates doc updates by adding instructions in your `[update-docs]` comment. Lines matching `filename.ext: instruction` are per-file instructions; all other lines are global instructions passed to the LLM:
 
 ```
-[update-docs] keep changes minimal
+[update-docs] keep changes minimal, here are usage examples for context:
+
+## Example usage
+my-tool --flag value
+
 config-ref.rst: only update the CLI usage example
 ```
 
@@ -49,6 +53,29 @@ The action auto-detects this file. To use a custom path instead, set the `style-
 ```
 
 Per-comment instructions (`[update-docs] keep changes minimal`) continue to work alongside the persistent config, appearing as additional guidance after the style guidelines. If per-comment or per-file instructions contradict the style guidelines, the reviewer's instructions take precedence.
+
+## Repository Configuration
+
+You can configure code-to-docs behavior with a JSON config file in your repository root:
+
+- **`.code-to-docs/config.json`** — Tool settings (loaded from the base branch, not the PR branch)
+
+**Supported settings:**
+
+| Key | Description | Example |
+|-----|-------------|---------|
+| `pr-title-prefix` | Prefix prepended to all PR titles and commit messages created by the tool | `":book:"` |
+
+**Example `.code-to-docs/config.json`:**
+```json
+{
+  "pr-title-prefix": ":book:"
+}
+```
+
+With this config, generated PRs will be titled `:book: docs: update documentation from PR #123` instead of `docs: update documentation from PR #123`.
+
+This file is optional — if missing, the tool uses default titles with no prefix.
 
 ## How It Works
 
@@ -125,7 +152,7 @@ jobs:
             "AUTHORIZATION: basic $(echo -n "x-access-token:${GH_TOKEN}" | base64 -w 0)"
 
       - name: Documentation Assistant
-        uses: redhat-community-ai-tools/code-to-docs@main
+        uses: redhat-community-ai-tools/code-to-docs@v1
         with:
           model-api-base: ${{ secrets.MODEL_API_BASE }}
           model-api-key: ${{ secrets.MODEL_API_KEY }}
@@ -172,6 +199,12 @@ These are set as `with:` parameters in the workflow step (not as secrets):
 | Input | Description |
 |-------|-------------|
 | `style-config-path` | _(Optional)_ Path to a Markdown style configuration file (`.md`) containing documentation style guidelines. If not set, auto-detects `.code-to-docs/style.md`. |
+
+### Versioning
+
+- `@v1` receives all backward-compatible updates (recommended)
+- `@v1.1.2` pins to an exact release
+- `@main` tracks unreleased changes and is not stable
 
 ### Supported Model Backends
 

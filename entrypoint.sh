@@ -10,6 +10,14 @@ git config --global --add safe.directory /github/workspace
 git config --global user.email "docbot@github-action.com"
 git config --global user.name "Documentation Enhancer Bot"
 
+# Ensure base branch ref is current — workflows may rebind origin URL without fetching.
+# Use explicit refspec because actions/checkout narrows remote.origin.fetch to the
+# checked-out ref, so a bare `git fetch origin main` updates FETCH_HEAD only.
+BASE_BRANCH="${DOCS_BASE_BRANCH:-main}"
+if ! git fetch --no-tags origin "+refs/heads/${BASE_BRANCH}:refs/remotes/origin/${BASE_BRANCH}" 2>&1; then
+  echo "⚠️ Failed to fetch origin/${BASE_BRANCH} — ref-based operations may use stale data"
+fi
+
 # Setup environment variables for GitHub Actions context
 # PR info is now passed as inputs from the workflow (already set as env vars)
 # Just ensure they're exported if they exist
@@ -28,7 +36,8 @@ if [ -n "$PR_HEAD_SHA" ]; then
 fi
 
 if [ -n "$DOCS_SUBFOLDER" ]; then
-  export DOCS_SUBFOLDER="$DOCS_SUBFOLDER"
+  DOCS_SUBFOLDER="${DOCS_SUBFOLDER%/}"
+  export DOCS_SUBFOLDER
 fi
 
 if [ -n "$COMMENT_BODY" ]; then

@@ -1,0 +1,67 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+      - run: uv python install 3.12
+      - run: uv sync --extra dev
+      - run: uv run ruff check src/ tests/
+      - run: uv run ruff format --check src/ tests/
+      - run: uv run pytest -v --cov=src --cov-report=term-missing --cov-fail-under=60
+
+  release:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Extract version from tag
+        id: version
+        run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Extract changelog section
+        id: changelog
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          version="${TAG#v}"
+          # Escape dots for awk regex
+          escaped=$(echo "$version" | sed 's/\./\\./g')
+          # Extract the section for this version from CHANGELOG.md
+          section=$(awk "/^## \[${escaped}\]/{found=1; next} /^## \[/{if(found) exit} found{print}" CHANGELOG.md)
+          if [ -z "$section" ]; then
+            section="Release ${version}"
+          fi
+          # Use a delimiter for multiline output
+          echo "body<<CHANGELOG_EOF" >> "$GITHUB_OUTPUT"
+          echo "$section" >> "$GITHUB_OUTPUT"
+          echo "CHANGELOG_EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          NOTES: ${{ steps.changelog.outputs.body }}
+        run: |
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes "$NOTES"
+
+      - name: Update major version tag
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          major=$(echo "$TAG" | grep -oP '^v\d+')
+          git tag -f "$major"
+          git push -f origin "$major"

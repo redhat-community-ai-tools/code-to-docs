@@ -4,9 +4,11 @@ Centralized configuration for code-to-docs GitHub Action.
 All environment variable access for configuration lives here.
 Runtime env vars (GH_TOKEN, PR_NUMBER, etc.) are still read where needed.
 Also handles loading persistent style guidelines from .code-to-docs/style.md
-or a user-specified STYLE_CONFIG_PATH.
+or a user-specified STYLE_CONFIG_PATH, and repo-level config from
+.code-to-docs/config.json.
 """
 
+import json
 import os
 import re
 
@@ -190,6 +192,71 @@ def load_style_config_from_branch():
         print(f"Warning: Could not load style config from base branch: {sanitize_output(str(e))}")
 
     return ""
+
+
+# =============================================================================
+# REPO-LEVEL CONFIGURATION (.code-to-docs/config.json)
+# =============================================================================
+
+_REPO_CONFIG_PATH = ".code-to-docs/config.json"
+
+_repo_config_cache = None
+
+
+def load_repo_config():
+    """Load repo-level config from the base branch via git show.
+
+    Reads .code-to-docs/config.json from origin/{base_branch} so the
+    repo's current settings always apply, regardless of the PR branch.
+
+    Returns a dict (empty if no config file exists).
+    """
+    global _repo_config_cache
+    if _repo_config_cache is not None:
+        return _repo_config_cache
+
+    _repo_config_cache = {}
+
+    try:
+        base_branch = os.environ.get("DOCS_BASE_BRANCH") or "main"
+        path = _REPO_CONFIG_PATH
+
+        if ".." in path.split("/") or path.startswith("/"):
+            return _repo_config_cache
+
+        run_command_safe(["git", "fetch", "origin", base_branch], check=False)
+
+        result = run_command_safe(
+            ["git", "show", f"origin/{base_branch}:{path}"],
+            check=False,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            _repo_config_cache = json.loads(result.stdout.strip())
+            print(
+                f"Loaded repo config from {base_branch}:{path}"
+                f" ({len(result.stdout.strip()):,} chars)"
+            )
+        elif result.returncode == 0 and not result.stdout.strip():
+            print(f"Warning: Repo config '{path}' on {base_branch} is empty, skipping")
+    except json.JSONDecodeError as e:
+        print(f"Warning: Invalid JSON in {_REPO_CONFIG_PATH}: {e}")
+    except Exception as e:
+        print(f"Warning: Could not load repo config: {sanitize_output(str(e))}")
+
+    return _repo_config_cache
+
+
+def get_pr_title_prefix():
+    """Get the PR title prefix from repo config (e.g., ':book: ').
+
+    Returns the prefix with a trailing space if set, empty string otherwise.
+    """
+    config = load_repo_config()
+    raw = config.get("pr-title-prefix", "")
+    if not isinstance(raw, str):
+        return ""
+    prefix = raw.strip()
+    return f"{prefix} " if prefix else ""
 
 
 def check_context_error(e):

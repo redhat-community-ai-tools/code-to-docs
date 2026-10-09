@@ -10,6 +10,8 @@ from doc_index import (
     INDEX_DIR,
     SUMMARIES_DIR,
     _get_docs_content_from_ref,
+    _get_effective_subfolder,
+    _handle_empty_folder_on_ref,
     checkout_docs_from_base_branch,
     folder_needs_reindex,
     get_doc_folders,
@@ -27,11 +29,13 @@ from doc_index import (
     load_index,
     load_manifest,
     load_summaries_manifest,
+    remove_index,
     save_index,
     save_manifest,
     save_summaries_manifest,
     save_summary,
     summaries_exist,
+    update_indexes_if_needed,
     working_directory,
 )
 
@@ -288,6 +292,70 @@ class TestFolderNeedsReindex:
             assert folder_needs_reindex("guides", manifest, docs_root=doc_tree) is False
 
 
+class TestGetEffectiveSubfolder:
+    @pytest.fixture(autouse=True)
+    def _reset_log_state(self):
+        yield
+        if hasattr(_get_effective_subfolder, "_last_msg"):
+            delattr(_get_effective_subfolder, "_last_msg")
+
+    def test_trailing_slash_normalized(self, monkeypatch):
+        """DOCS_SUBFOLDER with trailing slash should still match CWD prefix."""
+        monkeypatch.setenv("DOCS_SUBFOLDER", "docs/")
+        mock_result = MagicMock(returncode=0, stdout="docs/\n")
+        with patch("doc_index.run_command_safe", return_value=mock_result):
+            assert _get_effective_subfolder() == ""
+
+    def test_dot_slash_prefix_normalized(self, monkeypatch):
+        """DOCS_SUBFOLDER with ./ prefix should still match CWD prefix."""
+        monkeypatch.setenv("DOCS_SUBFOLDER", "./docs")
+        mock_result = MagicMock(returncode=0, stdout="docs/\n")
+        with patch("doc_index.run_command_safe", return_value=mock_result):
+            assert _get_effective_subfolder() == ""
+
+    def test_no_trailing_slash(self, monkeypatch):
+        """DOCS_SUBFOLDER without trailing slash matches normally."""
+        monkeypatch.setenv("DOCS_SUBFOLDER", "docs")
+        mock_result = MagicMock(returncode=0, stdout="docs/\n")
+        with patch("doc_index.run_command_safe", return_value=mock_result):
+            assert _get_effective_subfolder() == ""
+
+    def test_cwd_not_in_subfolder(self, monkeypatch):
+        """When CWD is not inside DOCS_SUBFOLDER, return the subfolder."""
+        monkeypatch.setenv("DOCS_SUBFOLDER", "docs")
+        mock_result = MagicMock(returncode=0, stdout="\n")
+        with patch("doc_index.run_command_safe", return_value=mock_result):
+            assert _get_effective_subfolder() == "docs"
+
+    def test_empty_subfolder(self, monkeypatch):
+        monkeypatch.setenv("DOCS_SUBFOLDER", "")
+        assert _get_effective_subfolder() == ""
+
+    def test_trailing_slash_pathspec_not_doubled(self, monkeypatch):
+        """The actual regression: trailing slash must not cause doubled pathspecs."""
+        monkeypatch.setenv("DOCS_SUBFOLDER", "docs/")
+        monkeypatch.setenv("DOCS_BASE_BRANCH", "main")
+
+        calls = []
+
+        def capture_run(cmd, **kwargs):
+            calls.append(cmd)
+            if "rev-parse" in cmd and "--show-prefix" in cmd:
+                return MagicMock(returncode=0, stdout="docs/\n")
+            if "rev-parse" in cmd and "--verify" in cmd:
+                return MagicMock(returncode=0)
+            if "ls-tree" in cmd:
+                return MagicMock(returncode=0, stdout="")
+            return MagicMock(returncode=0, stdout="")
+
+        with patch("doc_index.run_command_safe", side_effect=capture_run):
+            get_folder_doc_hashes_from_ref("commands")
+
+        ls_tree_calls = [c for c in calls if "ls-tree" in c]
+        assert len(ls_tree_calls) == 1
+        assert ls_tree_calls[0][-1] == "commands"
+
+
 class TestGetFolderDocHashesFromRef:
     def test_returns_hashes_from_git_ref(self, monkeypatch):
         monkeypatch.delenv("DOCS_SUBFOLDER", raising=False)
@@ -332,6 +400,25 @@ class TestGetFolderDocHashesFromRef:
         file_content = b"export docs"
 
         with (
+            patch("doc_index._get_effective_subfolder", return_value="docs"),
+            patch("doc_index.run_command_safe") as mock_run,
+            patch("doc_index.subprocess.run") as mock_subprocess,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout=ls_output)
+            mock_subprocess.return_value = MagicMock(returncode=0, stdout=file_content)
+            result = get_folder_doc_hashes_from_ref("commands")
+
+        assert result is not None
+        assert "commands/export.md" in result
+
+    def test_handles_docs_subfolder_from_inside(self, monkeypatch):
+        """When CWD is inside the docs subfolder, pathspecs omit the prefix."""
+        monkeypatch.setenv("DOCS_SUBFOLDER", "docs")
+        ls_output = "commands/export.md\n"
+        file_content = b"export docs"
+
+        with (
+            patch("doc_index._get_effective_subfolder", return_value=""),
             patch("doc_index.run_command_safe") as mock_run,
             patch("doc_index.subprocess.run") as mock_subprocess,
         ):
@@ -357,7 +444,7 @@ class TestGetFolderDocHashesFromRef:
         ls_call = mock_run.call_args_list[0].args[0]
         assert "origin/develop" in ls_call
         cat_call = mock_subprocess.call_args_list[0].args[0]
-        assert "origin/develop:guides/setup.md" in cat_call
+        assert "origin/develop:./guides/setup.md" in cat_call
 
     def test_root_level_folder_excludes_subdirectory_files(self, monkeypatch):
         from doc_index import ROOT_LEVEL_FOLDER
@@ -452,7 +539,10 @@ class TestGetDocsContentFromRef:
                 return MagicMock(returncode=0, stdout=ls_output)
             return MagicMock(returncode=0, stdout="export content")
 
-        with patch("doc_index.run_command_safe", side_effect=mock_run):
+        with (
+            patch("doc_index._get_effective_subfolder", return_value="docs"),
+            patch("doc_index.run_command_safe", side_effect=mock_run),
+        ):
             result = _get_docs_content_from_ref("commands")
 
         assert len(result) == 1
@@ -519,6 +609,163 @@ class TestIndexSaveLoad:
     def test_indexes_exist_empty_dir(self, tmp_path):
         (tmp_path / INDEX_DIR).mkdir()
         assert indexes_exist(docs_root=tmp_path) is False
+
+    def test_remove_index_deletes_file(self, tmp_path):
+        save_index("guides", "content", docs_root=tmp_path)
+        assert (tmp_path / INDEX_DIR / "guides.index.md").exists()
+        assert remove_index("guides", docs_root=tmp_path) is True
+        assert not (tmp_path / INDEX_DIR / "guides.index.md").exists()
+
+    def test_remove_index_missing_returns_false(self, tmp_path):
+        assert remove_index("nonexistent", docs_root=tmp_path) is False
+
+
+# ── _handle_empty_folder_on_ref ───────────────────────────────────────────────
+
+
+class TestHandleEmptyFolderOnRef:
+    """Tests for stale index cleanup when docs are deleted from the ref."""
+
+    def _mock_ref_valid(self):
+        """Mock run_command_safe so git rev-parse --verify succeeds."""
+
+        def side_effect(cmd, **kwargs):
+            if "rev-parse" in cmd and "--verify" in cmd:
+                return MagicMock(returncode=0)
+            return MagicMock(returncode=0, stdout="")
+
+        return side_effect
+
+    def _mock_ref_invalid(self):
+        """Mock run_command_safe so git rev-parse --verify fails."""
+
+        def side_effect(cmd, **kwargs):
+            if "rev-parse" in cmd and "--verify" in cmd:
+                return MagicMock(returncode=1)
+            return MagicMock(returncode=0, stdout="")
+
+        return side_effect
+
+    @patch("doc_index.get_docs_in_folder", return_value=[])
+    @patch("doc_index.get_folder_doc_hashes_from_ref", return_value={})
+    @patch("doc_index.run_command_safe")
+    def test_removes_index_when_docs_deleted_from_ref_and_disk(
+        self, mock_run, mock_ref_hashes, mock_disk_docs, tmp_path
+    ):
+        """Folder has no docs on ref AND no docs on disk — safe to remove."""
+        mock_run.side_effect = self._mock_ref_valid()
+        save_index("guides", "stale index", docs_root=tmp_path)
+        manifest = {"version": "1.0", "folders": {"guides": {"doc_hashes": {"g.md": "old"}}}}
+
+        result = _handle_empty_folder_on_ref("guides", manifest, docs_root=tmp_path)
+
+        assert result is True
+        assert not (tmp_path / INDEX_DIR / "guides.index.md").exists()
+        assert manifest["folders"]["guides"]["doc_hashes"] == {}
+
+    @patch("doc_index.get_folder_doc_hashes_from_ref", return_value={})
+    @patch("doc_index.run_command_safe")
+    def test_skips_when_disk_still_has_docs(self, mock_run, mock_ref_hashes, tmp_path):
+        """Folder has no docs on ref but docs exist on disk — likely ref mismatch."""
+        mock_run.side_effect = self._mock_ref_valid()
+        save_index("guides", "valid index", docs_root=tmp_path)
+        (tmp_path / "guides").mkdir()
+        (tmp_path / "guides" / "install.md").write_text("# Install")
+        manifest = {"version": "1.0", "folders": {}}
+
+        result = _handle_empty_folder_on_ref("guides", manifest, docs_root=tmp_path)
+
+        assert result is False
+        assert (tmp_path / INDEX_DIR / "guides.index.md").exists()
+
+    @patch("doc_index.run_command_safe")
+    def test_skips_when_ref_does_not_exist(self, mock_run, tmp_path):
+        """Ref doesn't resolve — don't trust empty results."""
+        mock_run.side_effect = self._mock_ref_invalid()
+        save_index("guides", "valid index", docs_root=tmp_path)
+        manifest = {"version": "1.0", "folders": {}}
+
+        result = _handle_empty_folder_on_ref("guides", manifest, docs_root=tmp_path)
+
+        assert result is False
+        assert (tmp_path / INDEX_DIR / "guides.index.md").exists()
+
+    @patch("doc_index.get_docs_in_folder", return_value=[])
+    @patch("doc_index.get_folder_doc_hashes_from_ref", return_value=None)
+    @patch("doc_index.run_command_safe")
+    def test_skips_when_ref_hashes_unavailable(
+        self, mock_run, mock_ref_hashes, mock_disk_docs, tmp_path
+    ):
+        """Ref exists but hashes return None — skip cleanup."""
+        mock_run.side_effect = self._mock_ref_valid()
+        save_index("guides", "valid index", docs_root=tmp_path)
+        manifest = {"version": "1.0", "folders": {}}
+
+        result = _handle_empty_folder_on_ref("guides", manifest, docs_root=tmp_path)
+
+        assert result is False
+        assert (tmp_path / INDEX_DIR / "guides.index.md").exists()
+
+
+# ── update_indexes_if_needed ─────────────────────────────────────────────────
+
+
+class TestUpdateIndexesIfNeeded:
+    @patch("doc_index._handle_empty_folder_on_ref", return_value=False)
+    @patch("doc_index.get_client")
+    @patch("doc_index.build_index_for_folder_with_retry")
+    @patch("doc_index.get_folder_doc_hashes_from_ref")
+    @patch("doc_index.folder_needs_reindex", return_value=True)
+    @patch("doc_index.get_doc_folders", return_value=["guides"])
+    def test_normal_rebuild(
+        self,
+        mock_folders,
+        mock_needs,
+        mock_ref_hashes,
+        mock_build,
+        mock_client,
+        mock_handle,
+        tmp_path,
+        monkeypatch,
+    ):
+        docs_root = tmp_path / "docs"
+        docs_root.mkdir()
+        monkeypatch.setattr("doc_index.get_docs_root", lambda: docs_root)
+        save_manifest({"version": "1.0", "folders": {}}, docs_root=docs_root)
+
+        mock_build.return_value = "# New index content"
+        mock_ref_hashes.return_value = {"guides/install.md": "newhash"}
+
+        updated = update_indexes_if_needed()
+
+        assert "guides" in updated
+        assert load_index("guides", docs_root=docs_root) == "# New index content"
+        mock_handle.assert_not_called()
+
+    @patch("doc_index._handle_empty_folder_on_ref", return_value=True)
+    @patch("doc_index.get_client")
+    @patch("doc_index.build_index_for_folder_with_retry", return_value=None)
+    @patch("doc_index.folder_needs_reindex", return_value=True)
+    @patch("doc_index.get_doc_folders", return_value=["guides"])
+    def test_delegates_to_handle_empty_when_build_returns_none(
+        self,
+        mock_folders,
+        mock_needs,
+        mock_build,
+        mock_client,
+        mock_handle,
+        tmp_path,
+        monkeypatch,
+    ):
+        docs_root = tmp_path / "docs"
+        docs_root.mkdir()
+        monkeypatch.setattr("doc_index.get_docs_root", lambda: docs_root)
+        save_manifest({"version": "1.0", "folders": {}}, docs_root=docs_root)
+
+        updated = update_indexes_if_needed()
+
+        assert "guides" in updated
+        mock_handle.assert_called_once()
 
 
 # ── checkout_docs_from_base_branch ───────────────────────────────────────────

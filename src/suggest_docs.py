@@ -32,6 +32,7 @@ from config import (
     get_client,
     get_max_context_chars,
     get_model_name,
+    get_pr_title_prefix,
     load_style_config_from_branch,
 )
 from discovery import (
@@ -187,7 +188,7 @@ def _push_docs_pr_for_merged(pr_number, docs_branch, docs_files, gh_token):
                 "pr",
                 "create",
                 "--title",
-                f"docs: update documentation from PR #{pr_number}",
+                f"{get_pr_title_prefix()}docs: update documentation from PR #{pr_number}",
                 "--body",
                 pr_body,
                 "--base",
@@ -299,7 +300,7 @@ def main():
                 msg = (
                     "## 🔍 Spec vs Code Analysis\n\n"
                     "Could not parse Jira issue key from your comment.\n\n"
-                    "Usage: `[review-feature] PROJ-123`"
+                    "Usage: <code>&#91;review-feature] PROJ-123</code>"
                 )
                 msg_file = Path("/tmp/missing_key.md")
                 msg_file.write_text(msg, encoding="utf-8")
@@ -326,8 +327,8 @@ def main():
                     "The following secrets are missing:\n\n"
                     f"{missing_list}\n\n"
                     "Please add them in **Settings → Secrets → Actions** and comment "
-                    "`[review-feature] PROJ-123` again.\n\n"
-                    "You can also use `[review-docs]` or `[update-docs]` which don't require Jira credentials.\n\n"
+                    "<code>&#91;review-feature] PROJ-123</code> again.\n\n"
+                    "You can also use <code>&#91;review-docs]</code> or <code>&#91;update-docs]</code> which don't require Jira credentials.\n\n"
                     "For setup details, see the [configuration guide](https://github.com/redhat-community-ai-tools/code-to-docs#2-configure-secrets)."
                 )
                 msg_file = Path("/tmp/missing_secrets.md")
@@ -640,7 +641,9 @@ def main():
                         for f in modified_files
                     ]
 
-                    commit_msg = "docs: update documentation based on code changes"
+                    commit_msg = (
+                        f"{get_pr_title_prefix()}docs: update documentation based on code changes"
+                    )
                     if commit_info:
                         commit_msg += "\n\nAssisted-by: code-to-docs AI"
 
@@ -779,7 +782,7 @@ def main():
                         confirm_parts.append(
                             "This is a fork PR, so I can't push changes directly. "
                             "The suggested changes are shown above for you to apply.\n\n"
-                            "Once this PR is merged, comment `[update-docs]` again "
+                            "Once this PR is merged, comment <code>&#91;update-docs]</code> again "
                             "and I'll create a docs PR with these updates."
                         )
                     elif docs_subfolder and push_failed:

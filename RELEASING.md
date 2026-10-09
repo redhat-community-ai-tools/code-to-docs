@@ -2,66 +2,62 @@
 
 This document explains how to release new versions of the code-to-docs action.
 
+## How It Works
+
+Pushing a semver tag triggers `.github/workflows/release.yaml`, which:
+
+1. Runs the full test suite (lint, format, tests with coverage)
+2. Extracts the release notes from `CHANGELOG.md`
+3. Creates a GitHub Release
+4. Force-updates the moving major tag (e.g. `v0` points to `v0.1.0`)
+
 ## Releasing a New Version
 
-When you're ready to release a new version (e.g., v1.2.0):
+### 1. Update CHANGELOG.md
 
-### 1. Create and push the specific version tag
+Move items from `[Unreleased]` into a new version section:
 
-```bash
-git tag v1.2.0
-git push origin v1.2.0
+```markdown
+## [0.2.0] - 2026-09-01
+
+### Added
+- New feature description
 ```
 
-### 2. Move the major version tag
+### 2. Bump the version in pyproject.toml
 
-This ensures users using `@v1` get the latest v1.x.x version:
-
-```bash
-git tag -f v1              # Move v1 tag to point to v1.2.0
-git push -f origin v1      # Force push the moved tag
+```toml
+version = "0.2.0"
 ```
 
-### 3. Update the README (if needed)
+### 3. Commit, tag, and push
 
-If the example in README.md references a specific version, consider whether it needs updating.
+```bash
+git add CHANGELOG.md pyproject.toml
+git commit -m "chore(release): prepare v0.2.0"
+git tag v0.2.0
+git push origin main --tags
+```
+
+The release workflow handles the rest: it creates the GitHub Release and
+moves the `v0` tag.
 
 ## Version Numbering
 
 Follow semantic versioning (MAJOR.MINOR.PATCH):
 
-- **MAJOR** (v2.0.0): Breaking changes
-- **MINOR** (v1.2.0): New features, backward compatible
-- **PATCH** (v1.1.1): Bug fixes, backward compatible
+- **MAJOR** (v1.0.0): Breaking changes to action inputs, outputs, or behavior
+- **MINOR** (v0.2.0): New features, backward compatible
+- **PATCH** (v0.1.1): Bug fixes, backward compatible
 
-## Complete Example
+## What Users Pin To
 
-```bash
-# Release v1.2.0
-git tag v1.2.0
-git push origin v1.2.0
+- `@v0` receives all compatible updates (recommended)
+- `@v0.1.0` is pinned to an exact release
+- `@main` tracks unreleased changes (unstable, not recommended)
 
-# Move v1 to v1.2.0
-git tag -f v1
-git push -f origin v1
+## Marketplace
 
-echo "✅ Released v1.2.0 and updated v1 tag"
-```
-
-## Verification
-
-After releasing, verify users can access it:
-
-```bash
-# Check tags
-git ls-remote --tags origin | grep v1
-
-# Should see both:
-# refs/tags/v1.2.0
-# refs/tags/v1
-```
-
-Users can now use:
-- `redhat-community-ai-tools/code-to-docs@v1` (gets v1.2.0)
-- `redhat-community-ai-tools/code-to-docs@v1.2.0` (pinned to v1.2.0)
-
+After the GitHub Release is created, visit the Release page and click
+"Publish this Action to the GitHub Marketplace" if the listing is not yet
+automatic. This is a manual step in the GitHub UI.
