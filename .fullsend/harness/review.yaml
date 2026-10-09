@@ -8,3 +8,18 @@ trigger: >
     && has(event.state.change_proposal)
     && has(event.transition.comment.command)
     && event.transition.comment.command == "/fs-review"
+
+# Temporary context for the generic custom-agent path used by this test.
+# FULLSEND_APP_SET is intentionally not overridden here: the Fullsend branch
+# under test must provide its documented fullsend-ai fallback.
+env:
+  runner:
+    PR_NUMBER: "74"
+    PR_URL: "https://github.com/redhat-community-ai-tools/code-to-docs/pull/74"
+    PRIOR_REVIEW_SHA: ""
+    PRIOR_REVIEW_PROVENANCE: "none"
+  sandbox:
+    PR_NUMBER: "74"
+    PR_URL: "https://github.com/redhat-community-ai-tools/code-to-docs/pull/74"
+    PRIOR_REVIEW_SHA: ""
+    PRIOR_REVIEW_PROVENANCE: "none"
