@@ -73,6 +73,14 @@ inputs:
     description: 'Path to a Markdown style configuration file (.md) containing documentation style guidelines. If not set, auto-detects .code-to-docs/style.md in the repository root.'
     required: false
     default: ''
+  mode:
+    description: 'Execution mode: "comment" (default, triggered by PR comments) or "detect-only" (identify affected docs without generating, for use as a status check on pull_request events)'
+    required: false
+    default: 'comment'
+  docs-drift-severity:
+    description: 'For detect-only mode: "warn" (always exit 0, default) or "error" (exit non-zero when affected docs are untouched)'
+    required: false
+    default: 'warn'
 
 outputs:
   status:
@@ -104,3 +112,5 @@ runs:
     GOOGLE_SA_KEY: ${{ inputs.google-sa-key }}
     MAX_CONTEXT_CHARS: ${{ inputs.max-context-chars }}
     STYLE_CONFIG_PATH: ${{ inputs.style-config-path }}
+    MODE: ${{ inputs.mode }}
+    DOCS_DRIFT_SEVERITY: ${{ inputs.docs-drift-severity }}

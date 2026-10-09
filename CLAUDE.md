@@ -20,6 +20,7 @@ AI-powered GitHub Action that analyzes code changes and generates documentation 
 | `comments.py` | PR comment building, parsing previous reviews, posting |
 | `github_ops.py` | Git operations, docs environment setup, pushing/creating PRs |
 | `jira_integration.py` | Jira/Confluence/Google Docs integration for `[review-feature]` |
+| `detect.py` | Detect-only mode — diff parsing, doc path extraction, drift reporting |
 | `security_utils.py` | Credential sanitization, safe subprocess execution, path validation |
 | `utils.py` | Retry logic, backoff calculations |
 
@@ -77,6 +78,8 @@ Set by the GitHub Action via `action.yml`:
 | `JIRA_API_TOKEN` | No | Jira API token (for `[review-feature]`) |
 | `GOOGLE_SA_KEY` | No | Google service account JSON key for fetching Google Docs |
 | `MAX_CONTEXT_CHARS` | No | Max chars for LLM prompt content (default: 400000) |
+| `MODE` | No | Execution mode: `comment` (default) or `detect-only` |
+| `DOCS_DRIFT_SEVERITY` | No | For detect-only mode: `warn` (default, exit 0) or `error` (exit non-zero) |
 
 ## Command flows
 
@@ -103,6 +106,10 @@ Push target depends on PR state and origin:
 Runs the `[review-docs]` flow plus fetches the Jira ticket and its linked spec docs (Confluence, Google Docs). Compares requirements from the spec against the actual code changes and posts a coverage analysis showing what's covered, missing, and unplanned.
 
 Requires `JIRA_URL`, `JIRA_USERNAME`, and `JIRA_API_TOKEN` secrets. Optionally uses `GOOGLE_SA_KEY` for fetching Google Docs.
+
+### Detect-only flow
+
+Runs on `pull_request` events (no comment needed). Gets the diff, discovers affected doc files, and compares them against docs actually changed in the PR. Reports untouched affected files and optionally fails the status check (`DOCS_DRIFT_SEVERITY=error`). Does not generate content or create PRs.
 
 ## Index system (in `doc_index.py`)
 
