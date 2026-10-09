@@ -197,6 +197,18 @@ These are set as `with:` parameters in the workflow step (not as secrets):
 | Input | Description |
 |-------|-------------|
 | `style-config-path` | _(Optional)_ Path to a Markdown style configuration file (`.md`) containing documentation style guidelines. If not set, auto-detects `.code-to-docs/style.md`. |
+| `cost-per-1m-input` | _(Optional)_ Cost per 1M input tokens (USD). When set alongside `cost-per-1m-output`, an estimated cost is shown in the token usage summary. |
+| `cost-per-1m-output` | _(Optional)_ Cost per 1M output tokens (USD). When set alongside `cost-per-1m-input`, an estimated cost is shown in the token usage summary. |
+| `debug-artifacts` | _(Optional)_ When `true`, include full prompt and response text in the run log artifact. **Warning:** prompts contain code diffs that may include sensitive content. Default `false`. |
+
+### 4. Action Outputs
+
+| Output | Description |
+|--------|-------------|
+| `status` | Status of the documentation enhancement (`success` or `failed`) |
+| `modified-files` | JSON array of modified files |
+| `pr-created` | Whether a PR was created |
+| `acceptance-rate` | Suggestion acceptance rate from previous review (e.g. `4/6`) |
 
 ### Versioning
 
