@@ -63,17 +63,40 @@ You can configure code-to-docs behavior with a JSON config file in your reposito
 | Key | Description | Example |
 |-----|-------------|---------|
 | `pr-title-prefix` | Prefix prepended to all PR titles and commit messages created by the tool | `":book:"` |
+| `validation.removal-threshold` | Fraction of original lines that can be removed before flagging (0.0 to 1.0) | `0.30` |
+| `validation.min-lines` | Files shorter than this skip the ratio-based preservation check | `20` |
+| `validation.llm-verification` | Set to `false` to skip the independent LLM verification call | `false` |
 
 **Example `.code-to-docs/config.json`:**
 ```json
 {
-  "pr-title-prefix": ":book:"
+  "pr-title-prefix": ":book:",
+  "validation": {
+    "removal-threshold": 0.30,
+    "min-lines": 20,
+    "llm-verification": true
+  }
 }
 ```
 
-With this config, generated PRs will be titled `:book: docs: update documentation from PR #123` instead of `docs: update documentation from PR #123`.
+This file is optional. Missing or invalid values fall back to defaults with a warning.
 
-This file is optional — if missing, the tool uses default titles with no prefix.
+## Excluding Files
+
+You can exclude files from AI analysis by creating `.code-to-docs/ignore` in your repository root. This file uses gitignore-style glob patterns, one per line:
+
+```
+# Generated API reference (managed by a separate tool)
+generated/*
+
+# Landing page (hand-crafted, should not be auto-updated)
+docs/index.md
+
+# Vendored docs
+vendor/**/*.md
+```
+
+Excluded files are never selected, never read into an LLM prompt, and are omitted from index-based selection results. The file is loaded from the base branch, consistent with other `.code-to-docs/` configuration.
 
 ## How It Works
 
@@ -160,14 +183,14 @@ jobs:
           pr-number: ${{ github.event.issue.number }}
           pr-base: origin/${{ steps.pr_info.outputs.base_ref || 'main' }}
           pr-head-sha: ${{ steps.pr_info.outputs.head_ref }}
-          docs-subfolder: ${{ secrets.DOCS_SUBFOLDER }}
+          docs-subfolder: 'docs'                         # Optional: path to docs within the same repo
           comment-body: ${{ github.event.comment.body }}
-          docs-base-branch: ${{ secrets.DOCS_BASE_BRANCH || 'main' }}
+          docs-base-branch: 'main'                          # Optional: base branch for docs PRs
           jira-url: ${{ secrets.JIRA_URL }}
           jira-username: ${{ secrets.JIRA_USERNAME }}
           jira-api-token: ${{ secrets.JIRA_API_TOKEN }}
           google-sa-key: ${{ secrets.GOOGLE_SA_KEY }}
-          max-context-chars: ${{ secrets.MAX_CONTEXT_CHARS }}
+          max-context-chars: '400000'                       # Optional: decrease for small-context models
           style-config-path: '.code-to-docs/style.md'
 ```
 
@@ -181,22 +204,24 @@ Add these in **Settings → Secrets → Actions**:
 | `MODEL_API_KEY` | API key for the model endpoint (leave empty if not required) |
 | `MODEL_NAME` | Model name to use (e.g., `meta-llama/Llama-3.1-8B-Instruct`, `gemini-2.0-flash`) |
 | `DOCS_REPO_URL` | Docs repository URL (e.g., `https://github.com/org/docs`) |
-| `GH_PAT` | _(Optional)_ GitHub PAT with `repo` scope. Only needed for **separate docs repos** (`docs-repo-url` pointing to a different repo). For same-repo setups, the built-in `GITHUB_TOKEN` works — no PAT required. |
-| `DOCS_SUBFOLDER` | _(Optional)_ Docs subfolder path (e.g., `docs`) |
-| `DOCS_BASE_BRANCH` | _(Optional)_ Base branch for docs PRs (default: `main`) |
+| `GH_PAT` | _(Optional)_ GitHub PAT with `repo` scope. Only needed for **separate docs repos** (`docs-repo-url` pointing to a different repo). For same-repo setups, the built-in `GITHUB_TOKEN` works. |
 | `JIRA_URL` | _(Optional, for `[review-feature]`)_ Jira instance URL (e.g., `https://your-company.atlassian.net`) |
 | `JIRA_USERNAME` | _(Optional, for `[review-feature]`)_ Jira username/email |
 | `JIRA_API_TOKEN` | _(Optional, for `[review-feature]`)_ Jira API token ([create here](https://id.atlassian.com/manage-profile/security/api-tokens)) |
 | `GOOGLE_SA_KEY` | _(Optional, for `[review-feature]`)_ Google service account JSON key for fetching Google Docs. Docs must be shared with the service account email. |
-| `MAX_CONTEXT_CHARS` | _(Optional)_ Maximum characters for LLM prompt content (default: `400000`, ~100K tokens). Decrease for models with smaller context windows (e.g., `32000` for an 8K-token model). |
 
 ### 3. Optional Action Inputs
 
 These are set as `with:` parameters in the workflow step (not as secrets):
 
-| Input | Description |
-|-------|-------------|
-| `style-config-path` | _(Optional)_ Path to a Markdown style configuration file (`.md`) containing documentation style guidelines. If not set, auto-detects `.code-to-docs/style.md`. |
+| Input | Default | Description |
+|-------|---------|-------------|
+| `docs-subfolder` | _(empty)_ | Relative path to docs subfolder within the same repo (e.g., `docs`) |
+| `docs-base-branch` | `main` | Base branch for docs repository PRs |
+| `max-context-chars` | `400000` | Maximum characters for LLM prompt content (~100K tokens). Decrease for models with smaller context windows. |
+| `style-config-path` | _(auto-detect)_ | Path to a Markdown style configuration file. If not set, auto-detects `.code-to-docs/style.md`. |
+
+> **Migration note:** `DOCS_SUBFOLDER`, `DOCS_BASE_BRANCH`, and `MAX_CONTEXT_CHARS` were previously documented as repository secrets. They are not secret values and should be set as action inputs instead. GitHub masks secret values in logs, which obstructs debugging when these are misconfigured. The action still reads from environment variables as a fallback.
 
 ### Versioning
 

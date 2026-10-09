@@ -157,6 +157,7 @@ def generate_updates_parallel(
     file_instructions=None,
     style_guidelines="",
     pr_description="",
+    validation_config=None,
 ):
     """
     Generate documentation updates in parallel.
@@ -238,6 +239,7 @@ def ask_ai_for_updated_content(
     current_content,
     user_instructions="",
     file_instructions=None,
+    validation_config=None,
     style_guidelines="",
     pr_description="",
 ):

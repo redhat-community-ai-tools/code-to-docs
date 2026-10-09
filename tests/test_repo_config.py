@@ -96,3 +96,35 @@ class TestGetPrTitlePrefix:
     def test_list_prefix_returns_empty(self):
         config._repo_config_cache = {"pr-title-prefix": [":book:"]}
         assert config.get_pr_title_prefix() == ""
+
+
+class TestGetValidationConfig:
+    def test_defaults_when_no_config(self):
+        vc = config.get_validation_config({})
+        assert vc["removal_threshold"] == 0.20
+        assert vc["min_lines"] == 30
+        assert vc["llm_verification"] is True
+
+    def test_overrides_threshold(self):
+        vc = config.get_validation_config({"validation": {"removal-threshold": 0.50}})
+        assert vc["removal_threshold"] == 0.50
+
+    def test_overrides_min_lines(self):
+        vc = config.get_validation_config({"validation": {"min-lines": 10}})
+        assert vc["min_lines"] == 10
+
+    def test_disables_llm_verification(self):
+        vc = config.get_validation_config({"validation": {"llm-verification": False}})
+        assert vc["llm_verification"] is False
+
+    def test_invalid_threshold_falls_back(self):
+        vc = config.get_validation_config({"validation": {"removal-threshold": "bad"}})
+        assert vc["removal_threshold"] == 0.20
+
+    def test_threshold_out_of_range_falls_back(self):
+        vc = config.get_validation_config({"validation": {"removal-threshold": 1.5}})
+        assert vc["removal_threshold"] == 0.20
+
+    def test_non_dict_validation_falls_back(self):
+        vc = config.get_validation_config({"validation": "not a dict"})
+        assert vc["llm_verification"] is True
