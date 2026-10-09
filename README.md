@@ -169,6 +169,7 @@ jobs:
           google-sa-key: ${{ secrets.GOOGLE_SA_KEY }}
           max-context-chars: ${{ secrets.MAX_CONTEXT_CHARS }}
           style-config-path: '.code-to-docs/style.md'
+          docs-build-command: 'mkdocs build'  # Optional: verify docs build before pushing
 ```
 
 ### 2. Configure Secrets
@@ -197,6 +198,7 @@ These are set as `with:` parameters in the workflow step (not as secrets):
 | Input | Description |
 |-------|-------------|
 | `style-config-path` | _(Optional)_ Path to a Markdown style configuration file (`.md`) containing documentation style guidelines. If not set, auto-detects `.code-to-docs/style.md`. |
+| `docs-build-command` | _(Optional)_ Shell command to build the docs tree before opening a PR. On failure the push is aborted. Hard timeout of 120s. |
 
 ### Versioning
 
