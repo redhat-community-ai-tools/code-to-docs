@@ -1,3 +1,10 @@
 # Temporary AISDLC-118 integration test harness.
 # Pinned to the current head of fullsend-ai/agents#1635.
 base: https://raw.githubusercontent.com/csoceanu/agents/0ccd5fe4be2ceb8e5eaaef25d2aafe8b1bb54e84/harness/review.yaml#sha256=5de679b3497079634ea928235106bd84531c29101fa9e6ac5f05672ef58df36d
+trigger: >
+  event.source.system == "github"
+    && event.entity.kind == "work_item"
+    && event.transition.kind == "comment_added"
+    && has(event.state.change_proposal)
+    && has(event.transition.comment.command)
+    && event.transition.comment.command == "/fs-review"
