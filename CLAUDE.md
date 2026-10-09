@@ -5,8 +5,9 @@ AI-powered GitHub Action that analyzes code changes and generates documentation 
 ## Architecture
 
 - **Entry point**: `entrypoint.sh` → `src/suggest_docs.py`
-- **Runs as**: Docker-based GitHub Action triggered by `issue_comment` events
+- **Runs as**: Docker-based GitHub Action triggered by `issue_comment` events, or `schedule`/`workflow_dispatch` for audit mode
 - **Commands**: `[review-docs]`, `[update-docs]`, `[review-feature] PROJ-123`
+- **Modes**: `comment` (default, PR-triggered), `audit` (scheduled full-repo drift check)
 
 ### Source modules (`src/`)
 
@@ -20,6 +21,7 @@ AI-powered GitHub Action that analyzes code changes and generates documentation 
 | `comments.py` | PR comment building, parsing previous reviews, posting |
 | `github_ops.py` | Git operations, docs environment setup, pushing/creating PRs |
 | `jira_integration.py` | Jira/Confluence/Google Docs integration for `[review-feature]` |
+| `audit.py` | Scheduled full-repo documentation drift audit — staleness assessment, report formatting, issue posting |
 | `security_utils.py` | Credential sanitization, safe subprocess execution, path validation |
 | `utils.py` | Retry logic, backoff calculations |
 
@@ -77,6 +79,8 @@ Set by the GitHub Action via `action.yml`:
 | `JIRA_API_TOKEN` | No | Jira API token (for `[review-feature]`) |
 | `GOOGLE_SA_KEY` | No | Google service account JSON key for fetching Google Docs |
 | `MAX_CONTEXT_CHARS` | No | Max chars for LLM prompt content (default: 400000) |
+| `MODE` | No | Execution mode: `comment` (default) or `audit` |
+| `AUDIT_BUDGET` | No | Max doc files to audit per run (default: 20) |
 
 ## Command flows
 
@@ -103,6 +107,10 @@ Push target depends on PR state and origin:
 Runs the `[review-docs]` flow plus fetches the Jira ticket and its linked spec docs (Confluence, Google Docs). Compares requirements from the spec against the actual code changes and posts a coverage analysis showing what's covered, missing, and unplanned.
 
 Requires `JIRA_URL`, `JIRA_USERNAME`, and `JIRA_API_TOKEN` secrets. Optionally uses `GOOGLE_SA_KEY` for fetching Google Docs.
+
+### Audit mode (`mode: audit`)
+
+Runs on `schedule` or `workflow_dispatch`. Walks the full docs tree using folder indexes, asks the LLM to rate each doc's staleness (fresh/stale/very-stale), and creates or updates a single GitHub Issue with findings grouped by severity. The `audit-budget` input (default: 20) bounds the number of files assessed per run to control LLM cost on large repos.
 
 ## Index system (in `doc_index.py`)
 
