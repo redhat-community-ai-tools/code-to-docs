@@ -268,6 +268,10 @@ uv run pre-commit install
 
 CI enforces lint, format, and a 60% test coverage threshold on every PR.
 
+## MCP Server
+
+code-to-docs includes a read-only [MCP](https://modelcontextprotocol.io/) server that lets any MCP-compatible agent (Claude Code, IDE extensions, etc.) query the documentation index. See [docs/mcp.md](docs/mcp.md) for setup instructions and available tools.
+
 ## Performance Optimization
 
 The action builds semantic indexes stored in `.doc-index/`:
