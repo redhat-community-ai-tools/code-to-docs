@@ -1,0 +1,19 @@
+diff --git a/src/auth.py b/src/auth.py
+index aaa1111..bbb2222 100644
+--- a/src/auth.py
++++ b/src/auth.py
+@@ -45,6 +45,15 @@ class AuthManager:
+     def validate_token(self, token):
+         """Validate a JWT token."""
+         return self._decode(token) is not None
++
++    def refresh_token(self, token):
++        """Refresh an expired token.
++
++        Returns a new token with an extended expiry, or None if the
++        original token is invalid.
++        """
++        payload = self._decode(token, allow_expired=True)
++        if payload:
++            return self._encode(payload)
++        return None

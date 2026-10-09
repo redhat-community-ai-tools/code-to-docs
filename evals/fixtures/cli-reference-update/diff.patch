@@ -1,0 +1,16 @@
+diff --git a/src/cli.py b/src/cli.py
+index 1112222..3334444 100644
+--- a/src/cli.py
++++ b/src/cli.py
+@@ -35,6 +35,12 @@ def build_parser():
+         "--verbose", "-v",
+         action="store_true",
+         help="Enable verbose output",
+     )
++    parser.add_argument(
++        "--output-format",
++        choices=["json", "text", "csv"],
++        default="text",
++        help="Output format for results (default: text)",
++    )
+     return parser

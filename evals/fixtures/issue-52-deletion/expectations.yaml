@@ -1,0 +1,12 @@
+selected:
+  - docs/auth-guide.md
+
+content_checks:
+  docs/auth-guide.md:
+    contains:
+      - "refresh_token"
+    # These sections must survive; the model should not delete them
+    heading_present:
+      - "## Rate Limiting"
+      - "## Error Handling"
+      - "## Troubleshooting"

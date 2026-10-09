@@ -1,0 +1,3 @@
+# The diff changes an internal cache implementation detail.
+# The API reference doc has nothing to do with it.
+expect_no_update: true

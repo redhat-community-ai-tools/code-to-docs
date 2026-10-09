@@ -1,0 +1,10 @@
+diff --git a/src/config.py b/src/config.py
+index ccc3333..ddd4444 100644
+--- a/src/config.py
++++ b/src/config.py
+@@ -10,6 +10,7 @@ DEFAULTS = {
+     "timeout": 30,
+     "retries": 3,
+     "log_level": "INFO",
++    "max_connections": 50,
+ }
