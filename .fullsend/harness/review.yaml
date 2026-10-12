@@ -1,8 +1,8 @@
 # Temporary pin of unmerged review from csoceanu/agents
-# (fullsend-ai/agents#1635, commit 3a051b16633f4cabcfd1a0a6325bd7abb2e59e96).
+# (fullsend-ai/agents#1636, commit 4c183b5dd3b48e12ee71c5043e19833820f7e6ab).
 #
 # Keep the built-in review role so Fullsend still fetches the prior-review
 # projection. Override only the registered review implementation.
-base: https://raw.githubusercontent.com/csoceanu/agents/3a051b16633f4cabcfd1a0a6325bd7abb2e59e96/harness/review.yaml#sha256=5de679b3497079634ea928235106bd84531c29101fa9e6ac5f05672ef58df36d
+base: https://raw.githubusercontent.com/csoceanu/agents/4c183b5dd3b48e12ee71c5043e19833820f7e6ab/harness/review.yaml#sha256=85382b4ee786bb5cdee141ea3d0f62bd35793726f8a2410a44c12904c3ebdd1a
 allowed_remote_resources:
   - https://raw.githubusercontent.com/csoceanu/agents/
