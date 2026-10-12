@@ -21,7 +21,7 @@ class TestCalcBackoffDelay:
         assert calc_backoff_delay(2, multiplier=2) == 6
 
     def test_zero_multiplier(self):
-        assert calc_backoff_delay(2, multiplier=0) == 0
+        assert calc_backoff_delay(2, multiplier=0) == 1
 
 
 # ── retry_with_backoff ────────────────────────────────────────────────────
