@@ -13,4 +13,9 @@ def is_even(value: int) -> bool:
 
 def is_positive(value: int) -> bool:
     """Return whether an integer is positive."""
-    return value >= 0
+    return value > 0
+
+
+def is_negative(value: int) -> bool:
+    """Return whether an integer is negative."""
+    return value <= 0
