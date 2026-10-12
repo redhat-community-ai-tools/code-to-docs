@@ -3,4 +3,4 @@
 # Keep the built-in review role so Fullsend fetches and verifies the prior
 # review projection. Override only the registered review implementation,
 # pinned to the current head of fullsend-ai/agents#1636.
-base: https://raw.githubusercontent.com/csoceanu/agents/4c183b5dd3b48e12ee71c5043e19833820f7e6ab/harness/review.yaml#sha256=85382b4ee786bb5cdee141ea3d0f62bd35793726f8a2410a44c12904c3ebdd1a
+base: https://raw.githubusercontent.com/csoceanu/agents/b33f1e6124a1b5fdf3e945e76a57680cb2af45a8/harness/review.yaml#sha256=58414921e8dd6b7a7135a7d23dde70e4a51fe4cbbc2b4bacd74de2eeb62acd99
