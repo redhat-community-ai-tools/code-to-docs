@@ -5,6 +5,7 @@ AI-powered GitHub Action that analyzes code changes and generates documentation 
 ## Architecture
 
 - **Entry point**: `entrypoint.sh` → `src/suggest_docs.py`
+- **MCP server**: `src/mcp_server.py` — standalone read-only MCP server for documentation retrieval
 - **Runs as**: Docker-based GitHub Action triggered by `issue_comment` events
 - **Commands**: `[review-docs]`, `[update-docs]`, `[review-feature] PROJ-123`
 
@@ -20,6 +21,7 @@ AI-powered GitHub Action that analyzes code changes and generates documentation 
 | `comments.py` | PR comment building, parsing previous reviews, posting |
 | `github_ops.py` | Git operations, docs environment setup, pushing/creating PRs |
 | `jira_integration.py` | Jira/Confluence/Google Docs integration for `[review-feature]` |
+| `mcp_server.py` | MCP server — find_docs_for_code, get_doc_index, check_doc_drift tools |
 | `security_utils.py` | Credential sanitization, safe subprocess execution, path validation |
 | `utils.py` | Retry logic, backoff calculations |
 
