@@ -78,11 +78,12 @@ This file is optional — if missing, the tool uses default titles with no prefi
 ## How It Works
 
 1. **Triggered by PR Comments** - When someone comments `[review-docs]`, `[update-docs]`, or `[review-feature]` on a Pull Request
-2. **Analyzes Code Changes** - Examines git diffs from your PRs using AI
-3. **Smart File Selection** - Identifies relevant documentation files automatically
-4. **Interactive Review** - Presents suggestions with checkboxes for user curation
-5. **Content Generation** - Generates updated documentation in AsciiDoc, Markdown, or reStructuredText
-6. **Spec vs Code Analysis** - Fetches Jira tickets and linked spec docs (Confluence, Google Docs) to identify gaps between requirements and the PR implementation
+2. **Scheduled Audit** - Runs on `schedule` or `workflow_dispatch` with `mode: audit` to walk the full docs tree and report stale documentation via a GitHub Issue
+3. **Analyzes Code Changes** - Examines git diffs from your PRs using AI
+4. **Smart File Selection** - Identifies relevant documentation files automatically
+5. **Interactive Review** - Presents suggestions with checkboxes for user curation
+6. **Content Generation** - Generates updated documentation in AsciiDoc, Markdown, or reStructuredText
+7. **Spec vs Code Analysis** - Fetches Jira tickets and linked spec docs (Confluence, Google Docs) to identify gaps between requirements and the PR implementation
 
 ## Setup
 
@@ -197,6 +198,8 @@ These are set as `with:` parameters in the workflow step (not as secrets):
 | Input | Description |
 |-------|-------------|
 | `style-config-path` | _(Optional)_ Path to a Markdown style configuration file (`.md`) containing documentation style guidelines. If not set, auto-detects `.code-to-docs/style.md`. |
+| `mode` | _(Optional)_ Execution mode: `comment` (default) or `audit` (scheduled full-repo drift check). |
+| `audit-budget` | _(Optional)_ Maximum number of doc files to audit per run (default: `20`). Controls cost on large repos. |
 
 ### Versioning
 
