@@ -176,19 +176,28 @@ def parse_update_instructions(comment_body):
     # treated as global to avoid misclassifying example filenames as per-file
     # instructions.
     global_lines = []
-    in_code_fence = False
+    fence_delimiter = None  # None = not in a fence; "`" or "~" = delimiter that opened it
     for line in lines:
         stripped = line.strip()
         if not stripped:
             global_lines.append("")
             continue
-        # Toggle code fence state on lines starting with triple backticks
-        # or triple tildes (handles language specifiers like ```python)
+        # Open or close a fenced code block.
+        # A backtick fence (```) may only be closed by a backtick fence,
+        # and a tilde fence (~~~) may only be closed by a tilde fence.
+        # Cross-delimiter closing (e.g. ``` opened, ~~~ closes) is NOT allowed.
         if stripped.startswith("```") or stripped.startswith("~~~"):
-            in_code_fence = not in_code_fence
+            current_delimiter = stripped[0]
+            if fence_delimiter is None:
+                # Opening a new fence
+                fence_delimiter = current_delimiter
+            elif current_delimiter == fence_delimiter:
+                # Closing the fence with a matching delimiter
+                fence_delimiter = None
+            # else: mismatched delimiter inside a fence — treat as regular content
             global_lines.append(stripped)
             continue
-        if in_code_fence:
+        if fence_delimiter is not None:
             global_lines.append(stripped)
             continue
         file_match = file_pattern.match(stripped)
