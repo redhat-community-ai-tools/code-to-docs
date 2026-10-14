@@ -1,0 +1,14 @@
+diff --git a/src/internal/cache.py b/src/internal/cache.py
+index eee5555..fff6666 100644
+--- a/src/internal/cache.py
++++ b/src/internal/cache.py
+@@ -22,7 +22,7 @@ class LRUCache:
+     def get(self, key):
+         if key in self._store:
+             self._hits += 1
+-            return self._store[key]
++            value = self._store.pop(key)
++            self._store[key] = value  # move to end
++            return value
+         self._misses += 1
+         return None
