@@ -18,6 +18,8 @@ from config import (
     get_client,
     get_max_context_chars,
     get_model_name,
+    is_path_ignored,
+    load_ignore_patterns,
     truncate_content,
 )
 
@@ -100,6 +102,15 @@ def get_file_content_or_summaries(line_threshold=300):
 
     # Filter out internal index files (.doc-index/) - these are for internal use only
     doc_files = [f for f in doc_files if ".doc-index" not in str(f)]
+
+    # Filter out files matching .code-to-docs/ignore patterns
+    ignore_patterns = load_ignore_patterns()
+    if ignore_patterns:
+        before = len(doc_files)
+        doc_files = [f for f in doc_files if not is_path_ignored(f, ignore_patterns)]
+        ignored = before - len(doc_files)
+        if ignored:
+            print(f"Excluded {ignored} file(s) via .code-to-docs/ignore")
 
     # Deduplicate file paths BEFORE processing to avoid duplicate work
     seen_paths = set()
@@ -365,5 +376,13 @@ def find_relevant_files_optimized(diff):
     if relevant_files is None:
         print("Falling back to full scan...")
         return None
+
+    ignore_patterns = load_ignore_patterns()
+    if ignore_patterns and relevant_files:
+        before = len(relevant_files)
+        relevant_files = [f for f in relevant_files if not is_path_ignored(f, ignore_patterns)]
+        ignored = before - len(relevant_files)
+        if ignored:
+            print(f"Excluded {ignored} file(s) via .code-to-docs/ignore")
 
     return relevant_files
