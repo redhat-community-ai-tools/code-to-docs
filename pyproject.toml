@@ -10,6 +10,7 @@ dependencies = [
     "mcp-atlassian",
     "markdown",
     "docutils",
+    "pyyaml",
 ]
 
 [project.optional-dependencies]
