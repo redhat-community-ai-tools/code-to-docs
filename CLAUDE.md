@@ -21,6 +21,7 @@ AI-powered GitHub Action that analyzes code changes and generates documentation 
 | `github_ops.py` | Git operations, docs environment setup, pushing/creating PRs |
 | `jira_integration.py` | Jira/Confluence/Google Docs integration for `[review-feature]` |
 | `security_utils.py` | Credential sanitization, safe subprocess execution, path validation |
+| `build_check.py` | Pre-commit docs build verification and code sample syntax checking |
 | `utils.py` | Retry logic, backoff calculations |
 
 ## Development
@@ -77,6 +78,7 @@ Set by the GitHub Action via `action.yml`:
 | `JIRA_API_TOKEN` | No | Jira API token (for `[review-feature]`) |
 | `GOOGLE_SA_KEY` | No | Google service account JSON key for fetching Google Docs |
 | `MAX_CONTEXT_CHARS` | No | Max chars for LLM prompt content (default: 400000) |
+| `DOCS_BUILD_COMMAND` | No | Shell command to build the docs tree before pushing (hard timeout 120s) |
 
 ## Command flows
 

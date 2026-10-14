@@ -23,6 +23,7 @@ import re
 import subprocess
 from pathlib import Path
 
+from build_check import check_code_samples, run_docs_build
 from comments import (
     parse_previous_review,
     parse_update_instructions,
@@ -580,6 +581,22 @@ def main():
                     modified_files.append(file_path)
             elif args.dry_run:
                 print(f"[Dry Run] Would update {file_path}")
+
+    # Check code samples in generated content
+    for file_path, _current, updated in files_with_content:
+        issues = check_code_samples(updated, file_path)
+        for line_num, lang, error in issues:
+            print(f"Warning: {file_path} line {line_num} ({lang}): {error}")
+
+    # Run docs build check before committing (if configured)
+    build_command = os.environ.get("DOCS_BUILD_COMMAND", "")
+    if build_command and update_mode and modified_files and not args.dry_run:
+        print("Running docs build check...")
+        ok, build_err = run_docs_build(build_command, os.getcwd())
+        if not ok:
+            print(f"Error: Docs build failed: {build_err}")
+            print("Aborting push. Fix the build errors and try again.")
+            return
 
     # Handle different modes
     if files_with_content:
