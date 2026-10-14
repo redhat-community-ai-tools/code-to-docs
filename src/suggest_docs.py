@@ -54,7 +54,9 @@ from jira_integration import (
     format_feature_review_section,
     parse_feature_command,
 )
+from run_log import RunLog
 from security_utils import run_command_safe, sanitize_output
+from telemetry import UsageTracker
 
 _GITHUB_NAME_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
 
@@ -244,6 +246,30 @@ def main():
     source = "MAX_CONTEXT_CHARS" if raw else "default"
     print(f"Context budget: {budget:,} chars (from {source})")
 
+    # Initialize token usage tracking
+    cost_input_val = None
+    cost_output_val = None
+    raw_cost_input = os.environ.get("COST_PER_1M_INPUT", "")
+    raw_cost_output = os.environ.get("COST_PER_1M_OUTPUT", "")
+    if raw_cost_input:
+        try:
+            cost_input_val = float(raw_cost_input)
+        except ValueError:
+            print(f"Warning: Invalid COST_PER_1M_INPUT='{raw_cost_input}', ignoring")
+    if raw_cost_output:
+        try:
+            cost_output_val = float(raw_cost_output)
+        except ValueError:
+            print(f"Warning: Invalid COST_PER_1M_OUTPUT='{raw_cost_output}', ignoring")
+    usage_tracker = UsageTracker(
+        cost_per_1m_input=cost_input_val,
+        cost_per_1m_output=cost_output_val,
+    )
+
+    # Initialize structured run log
+    debug_artifacts = os.environ.get("DEBUG_ARTIFACTS", "false").lower() == "true"
+    run_log = RunLog(include_prompts=debug_artifacts)
+
     # Load persistent style guidelines from the base branch so the AI always
     # uses the repo's current style config, even if the PR branch predates it.
     style_guidelines = load_style_config_from_branch()
@@ -413,6 +439,23 @@ def main():
         previous_review = parse_previous_review(pr_number)
 
         if previous_review["review_found"]:
+            suggested = len(previous_review["accepted_files"]) + len(
+                previous_review["rejected_files"]
+            )
+            accepted = len(previous_review["accepted_files"])
+            if suggested > 0:
+                print(f"Acceptance rate: suggested={suggested} accepted={accepted}")
+                github_output = os.environ.get("GITHUB_OUTPUT")
+                if github_output:
+                    try:
+                        with open(github_output, "a", encoding="utf-8") as f:
+                            f.write(f"acceptance-rate={accepted}/{suggested}\n")
+                    except OSError as e:
+                        print(
+                            f"Warning: Could not write acceptance-rate to GITHUB_OUTPUT: "
+                            f"{sanitize_output(str(e))}"
+                        )
+
             if previous_review["review_commit"] and commit_info:
                 if previous_review["review_commit"] != commit_info["short_hash"]:
                     print(
@@ -542,6 +585,8 @@ def main():
             file_instructions=file_instructions,
             style_guidelines=style_guidelines,
             pr_description=pr_description,
+            usage_tracker=usage_tracker,
+            run_log=run_log,
         )
 
         for file_path, _current, updated in files_with_content:
@@ -566,6 +611,8 @@ def main():
                 file_instructions=file_instructions,
                 style_guidelines=style_guidelines,
                 pr_description=pr_description,
+                usage_tracker=usage_tracker,
+                run_log=run_log,
             )
 
             if updated.strip() == "NO_UPDATE_NEEDED":
@@ -762,6 +809,9 @@ def main():
                         confirm_parts.append(
                             "A docs PR has been created/updated with these changes."
                         )
+                if usage_tracker.has_records:
+                    confirm_parts.append("")
+                    confirm_parts.append(usage_tracker.format_summary())
                 confirm_body = "\n".join(confirm_parts)
                 confirm_file = Path("/tmp/update_confirm.md")
                 confirm_file.write_text(confirm_body, encoding="utf-8")
@@ -787,6 +837,9 @@ def main():
             )
         else:
             print("All documentation is already up to date — no PR created.")
+
+    if run_log.has_entries:
+        print(f"Run log written to: {run_log.path}")
 
 
 if __name__ == "__main__":

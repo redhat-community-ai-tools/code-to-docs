@@ -11,6 +11,7 @@ This module handles:
 
 import re
 import subprocess
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -48,9 +49,7 @@ def strip_code_fences(text):
 
     stripped = text.strip()
     fence_pattern = re.compile(
-        r"^```(?:markdown|md|adoc|asciidoc|rst|restructuredtext)?\s*\n"
-        r"(.*?)"
-        r"\n?```\s*$",
+        r"^```(?:markdown|md|adoc|asciidoc|rst|restructuredtext)?\s*\n" r"(.*?)" r"\n?```\s*$",
         re.DOTALL,
     )
     match = fence_pattern.match(stripped)
@@ -157,6 +156,8 @@ def generate_updates_parallel(
     file_instructions=None,
     style_guidelines="",
     pr_description="",
+    usage_tracker=None,
+    run_log=None,
 ):
     """
     Generate documentation updates in parallel.
@@ -169,6 +170,8 @@ def generate_updates_parallel(
         file_instructions: Optional dict mapping filenames to per-file instructions
         style_guidelines: Optional persistent style guidelines from config file
         pr_description: Optional PR title and body for context
+        usage_tracker: Optional UsageTracker instance for token counting
+        run_log: Optional RunLog instance for structured logging
 
     Returns:
         list: List of (file_path, original_content, updated_content) tuples
@@ -190,6 +193,8 @@ def generate_updates_parallel(
             file_instructions=file_instructions,
             style_guidelines=style_guidelines,
             pr_description=pr_description,
+            usage_tracker=usage_tracker,
+            run_log=run_log,
         )
 
         if updated.strip() == "NO_UPDATE_NEEDED":
@@ -240,6 +245,8 @@ def ask_ai_for_updated_content(
     file_instructions=None,
     style_guidelines="",
     pr_description="",
+    usage_tracker=None,
+    run_log=None,
 ):
     is_markdown = file_path.endswith(".md")
     is_asciidoc = file_path.endswith(".adoc")
@@ -414,6 +421,7 @@ The human reviewer has provided the following guidance. Follow these instruction
     model_name = get_model_name()
 
     try:
+        t0 = time.monotonic()
         response = client.chat.completions.create(
             model=model_name,
             messages=[
@@ -421,8 +429,31 @@ The human reviewer has provided the following guidance. Follow these instruction
                 {"role": "user", "content": prompt},
             ],
         )
+        latency_ms = (time.monotonic() - t0) * 1000
+        if usage_tracker:
+            usage_tracker.record("generation", response)
         output = (response.choices[0].message.content or "").strip()
+        if run_log:
+            run_log.record(
+                "generation",
+                file_path,
+                prompt,
+                output,
+                getattr(response, "usage", None),
+                latency_ms,
+                "ok",
+            )
     except Exception as e:
+        if run_log:
+            run_log.record(
+                "generation",
+                file_path,
+                prompt,
+                "",
+                None,
+                (time.monotonic() - t0) * 1000,
+                f"error: {type(e).__name__}",
+            )
         check_context_error(e)
         raise
 
@@ -456,6 +487,7 @@ Your output that failed validation:
 Return ONLY the corrected raw file content, no explanations."""
 
             try:
+                t0_fix = time.monotonic()
                 fix_response = client.chat.completions.create(
                     model=model_name,
                     messages=[
@@ -463,11 +495,34 @@ Return ONLY the corrected raw file content, no explanations."""
                         {"role": "user", "content": fix_prompt},
                     ],
                 )
+                fix_latency_ms = (time.monotonic() - t0_fix) * 1000
+                if usage_tracker:
+                    usage_tracker.record("format-fix", fix_response)
                 output = (fix_response.choices[0].message.content or "").strip()
+                if run_log:
+                    run_log.record(
+                        "format-fix",
+                        file_path,
+                        fix_prompt,
+                        output,
+                        getattr(fix_response, "usage", None),
+                        fix_latency_ms,
+                        "ok",
+                    )
                 output = strip_code_fences(output)
                 if not output.endswith("\n"):
                     output += "\n"
             except Exception as e:
+                if run_log:
+                    run_log.record(
+                        "format-fix",
+                        file_path,
+                        fix_prompt,
+                        "",
+                        None,
+                        (time.monotonic() - t0_fix) * 1000,
+                        f"error: {type(e).__name__}",
+                    )
                 check_context_error(e)
                 print(
                     f"Warning: Skipping {file_path} — error during format fix retry: {sanitize_output(str(e))}"

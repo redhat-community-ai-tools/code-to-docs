@@ -21,6 +21,8 @@ AI-powered GitHub Action that analyzes code changes and generates documentation 
 | `github_ops.py` | Git operations, docs environment setup, pushing/creating PRs |
 | `jira_integration.py` | Jira/Confluence/Google Docs integration for `[review-feature]` |
 | `security_utils.py` | Credential sanitization, safe subprocess execution, path validation |
+| `telemetry.py` | Thread-safe token usage tracking and cost estimation |
+| `run_log.py` | Structured JSONL run log of LLM calls for debugging |
 | `utils.py` | Retry logic, backoff calculations |
 
 ## Development
@@ -77,6 +79,9 @@ Set by the GitHub Action via `action.yml`:
 | `JIRA_API_TOKEN` | No | Jira API token (for `[review-feature]`) |
 | `GOOGLE_SA_KEY` | No | Google service account JSON key for fetching Google Docs |
 | `MAX_CONTEXT_CHARS` | No | Max chars for LLM prompt content (default: 400000) |
+| `COST_PER_1M_INPUT` | No | Cost per 1M input tokens (USD) for estimated cost in usage summary |
+| `COST_PER_1M_OUTPUT` | No | Cost per 1M output tokens (USD) for estimated cost in usage summary |
+| `DEBUG_ARTIFACTS` | No | If `true`, include full prompt/response text in the run log artifact |
 
 ## Command flows
 
