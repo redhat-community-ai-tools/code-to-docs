@@ -207,6 +207,30 @@ def _push_docs_pr_for_merged(pr_number, docs_branch, docs_files, gh_token):
         return None
 
 
+def _build_verification_summary(verification_statuses):
+    """Build a counts-only summary when any file had a non-trivial verification outcome.
+
+    Uses counts only, never model-generated prose, because the summary is
+    interpolated into a Markdown comment that parse_previous_review() later
+    parses for checkbox state.
+    """
+    counts = {}
+    for _fp, (status, _notes) in verification_statuses.items():
+        if status in ("passed", "skipped"):
+            continue
+        counts[status] = counts.get(status, 0) + 1
+    if not counts:
+        return ""
+    parts = []
+    for status, n in sorted(counts.items()):
+        label = {
+            "regenerated": "regenerated after preservation check",
+            "unavailable": "verification unavailable",
+        }.get(status, status)
+        parts.append(f"{n} file{'s' if n != 1 else ''} {label}")
+    return "Validation: " + "; ".join(parts) + "."
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -531,10 +555,11 @@ def main():
     # === GENERATE UPDATES ===
     files_with_content = []
     modified_files = []
+    verification_statuses = {}
 
     if args.parallel_updates and len(relevant_files) > 1:
         print(f"Generating updates in parallel (max {args.max_workers} workers)...")
-        files_with_content = generate_updates_parallel(
+        gen_results = generate_updates_parallel(
             diff,
             relevant_files,
             max_workers=args.max_workers,
@@ -542,12 +567,15 @@ def main():
             file_instructions=file_instructions,
             style_guidelines=style_guidelines,
             pr_description=pr_description,
+            skip_verification=review_mode and not update_mode,
         )
 
-        for file_path, _current, updated in files_with_content:
+        for file_path, original, result in gen_results:
+            verification_statuses[file_path] = (result.verification_status, result.notes)
+            files_with_content.append((file_path, original, result.content))
             if update_mode and not args.dry_run:
                 print(f"Updating {file_path}...")
-                if overwrite_file(file_path, updated):
+                if overwrite_file(file_path, result.content):
                     modified_files.append(file_path)
             elif args.dry_run:
                 print(f"[Dry Run] Would update {file_path}")
@@ -558,7 +586,7 @@ def main():
                 continue
 
             print(f"Checking if {file_path} needs an update...")
-            updated = ask_ai_for_updated_content(
+            result = ask_ai_for_updated_content(
                 diff,
                 file_path,
                 current,
@@ -566,20 +594,26 @@ def main():
                 file_instructions=file_instructions,
                 style_guidelines=style_guidelines,
                 pr_description=pr_description,
+                skip_verification=review_mode and not update_mode,
             )
 
-            if updated.strip() == "NO_UPDATE_NEEDED":
+            verification_statuses[file_path] = (result.verification_status, result.notes)
+
+            if result.content.strip() == "NO_UPDATE_NEEDED":
                 print(f"No update needed for {file_path}")
                 continue
 
-            files_with_content.append((file_path, current, updated))
+            files_with_content.append((file_path, current, result.content))
 
             if update_mode and not args.dry_run:
                 print(f"Updating {file_path}...")
-                if overwrite_file(file_path, updated):
+                if overwrite_file(file_path, result.content):
                     modified_files.append(file_path)
             elif args.dry_run:
                 print(f"[Dry Run] Would update {file_path}")
+
+    # Build a verification summary line for non-trivial outcomes.
+    verification_summary = _build_verification_summary(verification_statuses)
 
     # Handle different modes
     if files_with_content:
@@ -762,6 +796,9 @@ def main():
                         confirm_parts.append(
                             "A docs PR has been created/updated with these changes."
                         )
+                if verification_summary:
+                    confirm_parts.append("")
+                    confirm_parts.append(f"_{verification_summary}_")
                 confirm_body = "\n".join(confirm_parts)
                 confirm_file = Path("/tmp/update_confirm.md")
                 confirm_file.write_text(confirm_body, encoding="utf-8")
