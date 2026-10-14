@@ -41,6 +41,8 @@ jobs:
     if: >-
       github.event_name != 'issue_comment'
       || github.event.comment.user.type != 'Bot'
+    # Pinned to v0 moving tag: fullsend-ai controls this workflow and
+    # fullsend_ai_ref below must match.  Dependabot will propose SHA updates.
     uses: fullsend-ai/fullsend/.github/workflows/reusable-dispatch.yml@v0
     with:
       event_action: ${{ github.event.action }}

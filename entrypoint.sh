@@ -1,14 +1,14 @@
 #!/bin/bash
 set -e
 
-echo "🚀 Starting Upstream Documentation Enhancer GitHub Action"
+echo "🚀 Starting Code-to-Docs GitHub Action"
 
 # Fix Git ownership issue in Docker container
 git config --global --add safe.directory /github/workspace
 
 # Configure Git user for commits
 git config --global user.email "docbot@github-action.com"
-git config --global user.name "Documentation Enhancer Bot"
+git config --global user.name "Code-to-Docs Bot"
 
 # Ensure base branch ref is current — workflows may rebind origin URL without fetching.
 # Use explicit refspec because actions/checkout narrows remote.origin.fetch to the
