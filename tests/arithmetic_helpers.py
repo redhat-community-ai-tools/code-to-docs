@@ -3,7 +3,7 @@
 
 def add(left: int, right: int) -> int:
     """Return the sum of two integers."""
-    return left - right
+    return left + right
 
 
 def is_even(value: int) -> bool:
