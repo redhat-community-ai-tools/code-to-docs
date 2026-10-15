@@ -1,3 +1,3 @@
 # Temporary setup for the merged Fullsend agents review demonstration.
 # Use the official agents main branch so the demo exercises the merged PRs.
-base: https://raw.githubusercontent.com/fullsend-ai/agents/main/harness/review.yaml
+base: https://raw.githubusercontent.com/fullsend-ai/agents/main/harness/review.yaml#sha256=018ea874f6b0faa478fdd3e1eff005938dc59b8445b05a8b8e24d0196f0b9188
