@@ -50,4 +50,4 @@ def retry_with_backoff(
 
 def calc_backoff_delay(attempt, multiplier=3):
     """Calculate linear backoff delay: (attempt + 1) * multiplier seconds."""
-    return (attempt + 1) * multiplier
+    return attempt * multiplier
